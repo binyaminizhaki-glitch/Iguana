@@ -5,6 +5,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { api, type UserDTO, type VisibilityScope } from './api';
+import { supabase, getCurrentUser } from './supabase';
 import {
   Bell,
   X,
@@ -46,6 +48,29 @@ const AVATAR_NOA = "https://lh3.googleusercontent.com/aida-public/AB6AXuC7BEWAGj
 const AVATAR_ITAY = "https://lh3.googleusercontent.com/aida-public/AB6AXuASwUgI7Z5vV6PpIKTSqLJOcngrPfI6hbyAfbIXWnrLugUh3hhUvvs72W71ViU9YmPpkCUkIBkUpRL3L179NyU1k7wGo3NRYdGkqUNbhW_ckv30cUToVvifv8Xj6V7yltATJhOJmjJJFk4vn3v4XkCCXuiHDcZAM5mgWvyov-6qr9yRSjyMf7HY0ch69GdvKUQlvsqAzzDS1DvCtnWTL4AN3WFg7ZEB7jMk5HK9v7R4wp-0FathFYdLWchnsH81uuJQdJwy0tzRsT8";
 const AVATAR_MAYA = "https://lh3.googleusercontent.com/aida-public/AB6AXuD3t9wQREi4hO5_ASFariOpY90WXzi4905x5u6jqoZNPO5f_0ANi2_iTj6Zkqepc_ZRYBG4B0UZW1lYrEgJFHXy2nL7SSXi_CJpgGQnfZHjGc4_Q5N_YtWLJ10MNH1fmlsLR4NlcaU86i84qZnUWbgxXFf4L_H3l-9UGjTDv6GiYa0pl61o9of_Z-SHml3eB0lf1wRBoPG3zy76qqz1JVAy6_c4dEaSbIHm8SGQSNhSsWvGQ88rYtSHmDJbggi_0hv7V5ZhcalgGBk";
 const ONBOARDING_BG = "https://lh3.googleusercontent.com/aida-public/AB6AXuB8a8QkEfd7fc7Uq4jg5wwTykVfdsAslA1CM3aUl1FYijsMGvsP9ZTnhcHYx-8NM4L1l5lWoxv_C8UhU2IADNn70rExy8f-5RXAIJsCGC4FU6Kv3s1ogydqEeqbjqy1ZHAP3g7fjkN4uFOw1vXdysCNtHCWhQhMYu_TigigDJ-8Xi_uFeFFoLSRXThaJDgshxVEh_ayO0ifjAfUihev8do67gvBn64GsDrczXqbu3qlsf06j9xV5mfRVC0t513BYVaFMQQt9n4XefM";
+
+const GRADE_OPTIONS = ['י׳', 'י״א', 'י״ב'];
+const VISIBILITY_OPTIONS: Array<{ value: VisibilityScope; label: string; description: string }> = [
+  { value: 'friends', label: 'רק חברים', description: 'יראו אתכם רק חברים מאושרים.' },
+  { value: 'grade', label: 'כל השכבה', description: 'גם תלמידים מהשכבה שלך יראו שאתה בחוץ.' },
+  { value: 'all', label: 'כולם', description: 'כל תלמידי בית הספר יוכלו לראות אותך.' },
+];
+
+function isProfileComplete(user: UserDTO | null): boolean {
+  if (!user) {
+    return false;
+  }
+
+  const fullName = user.fullName.trim();
+  const grade = user.grade.trim().toLowerCase();
+
+  return (
+    fullName.length >= 2 &&
+    fullName.toLowerCase() !== 'new user' &&
+    grade.length > 0 &&
+    grade !== 'unknown'
+  );
+}
 
 // --- Components ---
 
@@ -175,6 +200,270 @@ function OnboardingScreen({ onLogin }: { onLogin: () => void }) {
   );
 }
 
+function ProfileSetupWizard({
+  initialUser,
+  onComplete,
+  onLogout,
+}: {
+  initialUser: UserDTO | null;
+  onComplete: (user: UserDTO) => void;
+  onLogout: () => void;
+}) {
+  const [step, setStep] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [form, setForm] = useState({
+    fullName: initialUser?.fullName && initialUser.fullName !== 'New User' ? initialUser.fullName : '',
+    grade: initialUser?.grade && initialUser.grade !== 'unknown' ? initialUser.grade : '',
+    defaultVisibility: (initialUser?.defaultVisibility ?? 'friends') as VisibilityScope,
+    avatarUrl: initialUser?.avatarUrl ?? '',
+    preciseLocationEnabled: initialUser?.preciseLocationEnabled ?? false,
+  });
+
+  const stepTitles = ['עליך', 'לימודים', 'פרטיות', 'תמונה'];
+  const isLastStep = step === stepTitles.length - 1;
+
+  const validateStep = (index: number): boolean => {
+    const nextErrors: Record<string, string> = {};
+
+    if (index === 0) {
+      if (form.fullName.trim().length < 2) {
+        nextErrors.fullName = 'צריך להזין שם מלא של לפחות 2 תווים.';
+      }
+    }
+
+    if (index === 1) {
+      if (!form.grade) {
+        nextErrors.grade = 'יש לבחור כיתה.';
+      }
+    }
+
+    if (index === 2) {
+      if (!VISIBILITY_OPTIONS.some((option) => option.value === form.defaultVisibility)) {
+        nextErrors.defaultVisibility = 'יש לבחור הגדרת פרטיות.';
+      }
+    }
+
+    setFieldErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleNext = () => {
+    if (!validateStep(step)) {
+      return;
+    }
+    setSubmitError(null);
+    setStep((prev) => Math.min(prev + 1, stepTitles.length - 1));
+  };
+
+  const handleBack = () => {
+    setFieldErrors({});
+    setSubmitError(null);
+    setStep((prev) => Math.max(prev - 1, 0));
+  };
+
+  const handleSubmit = async () => {
+    if (!validateStep(0)) {
+      setStep(0);
+      return;
+    }
+
+    if (!validateStep(1)) {
+      setStep(1);
+      return;
+    }
+
+    if (!validateStep(2)) {
+      setStep(2);
+      return;
+    }
+
+    setIsSaving(true);
+    setSubmitError(null);
+    try {
+      const response = await api.updateMyProfile({
+        fullName: form.fullName.trim(),
+        grade: form.grade,
+        defaultVisibility: form.defaultVisibility,
+        avatarUrl: form.avatarUrl.trim() || undefined,
+        preciseLocationEnabled: form.preciseLocationEnabled,
+      });
+
+      if (!response.user) {
+        throw new Error('לא התקבלו נתוני משתמש מהשרת.');
+      }
+
+      onComplete(response.user);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'שמירת הפרופיל נכשלה. נסה שוב.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="relative min-h-screen app-bg text-on-surface antialiased overflow-hidden px-4 sm:px-6 py-6 sm:py-10">
+      <div className="max-w-xl mx-auto">
+        <div className="section-card p-5 sm:p-7">
+          <div className="flex items-start justify-between mb-6">
+            <div>
+              <p className="text-sm text-on-surface-variant font-semibold">כניסה ראשונה</p>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-primary mt-1">בוא נסדר את הפרופיל שלך</h1>
+              <p className="text-sm text-on-surface-variant mt-2">זה חד-פעמי ולוקח פחות מדקה.</p>
+            </div>
+            <button
+              onClick={onLogout}
+              className="px-3 py-2 text-sm font-semibold text-error bg-danger-soft rounded-full"
+            >
+              יציאה
+            </button>
+          </div>
+
+          <div className="grid grid-cols-4 gap-2 mb-7">
+            {stepTitles.map((title, index) => (
+              <div key={title} className="space-y-2">
+                <div className={`h-1.5 rounded-full ${index <= step ? 'bg-primary' : 'bg-surface-container'}`} />
+                <p className={`text-xs font-semibold text-center ${index <= step ? 'text-primary' : 'text-on-surface-variant'}`}>
+                  {title}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {step === 0 && (
+            <div className="space-y-3">
+              <label className="block text-sm font-bold text-primary">שם מלא</label>
+              <input
+                type="text"
+                value={form.fullName}
+                onChange={(e) => setForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                placeholder="לדוגמה: נועה כהן"
+                className="w-full bg-surface-container-low border-none rounded-xl p-4 text-on-surface placeholder:text-on-surface-variant/60 focus:ring-2 focus:ring-primary/15 focus:bg-surface-container-highest transition-all outline-none"
+              />
+              {fieldErrors.fullName && <p className="text-sm text-error font-semibold">{fieldErrors.fullName}</p>}
+            </div>
+          )}
+
+          {step === 1 && (
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-bold text-primary mb-2">כיתה</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {GRADE_OPTIONS.map((grade) => (
+                    <button
+                      key={grade}
+                      type="button"
+                      onClick={() => setForm((prev) => ({ ...prev, grade }))}
+                      className={`py-3 rounded-xl text-sm font-bold transition-colors ${form.grade === grade ? 'bg-primary text-white' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container'}`}
+                    >
+                      {grade}
+                    </button>
+                  ))}
+                </div>
+                {fieldErrors.grade && <p className="text-sm text-error font-semibold mt-2">{fieldErrors.grade}</p>}
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-4">
+              {VISIBILITY_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setForm((prev) => ({ ...prev, defaultVisibility: option.value }))}
+                  className={`w-full text-right p-4 rounded-2xl border transition-colors ${form.defaultVisibility === option.value ? 'border-primary bg-primary-soft' : 'border-outline-variant/20 bg-surface-container-lowest hover:bg-surface-container-low'}`}
+                >
+                  <p className="font-bold text-primary">{option.label}</p>
+                  <p className="text-sm text-on-surface-variant mt-1">{option.description}</p>
+                </button>
+              ))}
+              {fieldErrors.defaultVisibility && <p className="text-sm text-error font-semibold">{fieldErrors.defaultVisibility}</p>}
+
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-surface-container-low">
+                <div>
+                  <p className="font-semibold text-primary">מיקום מדויק</p>
+                  <p className="text-xs text-on-surface-variant mt-1">אם כבוי, יוצג אזור כללי בלבד.</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.preciseLocationEnabled}
+                  onClick={() => setForm((prev) => ({ ...prev, preciseLocationEnabled: !prev.preciseLocationEnabled }))}
+                  className={`w-12 h-7 rounded-full relative transition-colors ${form.preciseLocationEnabled ? 'bg-primary' : 'bg-surface-container-high'}`}
+                >
+                  <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${form.preciseLocationEnabled ? 'right-1' : 'right-6'}`} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-4">
+              <div className="mx-auto w-24 h-24 rounded-[1.5rem] overflow-hidden shadow-lg">
+                <img
+                  src={form.avatarUrl.trim() || PROFILE_MAIN}
+                  alt="תצוגת תמונת פרופיל"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <label className="block text-sm font-bold text-primary">קישור לתמונת פרופיל (אופציונלי)</label>
+              <input
+                type="url"
+                value={form.avatarUrl}
+                onChange={(e) => setForm((prev) => ({ ...prev, avatarUrl: e.target.value }))}
+                placeholder="https://..."
+                className="w-full bg-surface-container-low border-none rounded-xl p-4 text-on-surface placeholder:text-on-surface-variant/60 focus:ring-2 focus:ring-primary/15 focus:bg-surface-container-highest transition-all outline-none"
+              />
+              <p className="text-xs text-on-surface-variant">אפשר לדלג עכשיו ולהעלות תמונה אחר כך.</p>
+            </div>
+          )}
+
+          {submitError && (
+            <div className="mt-5 rounded-xl bg-danger-soft p-3 text-sm text-error font-semibold">
+              {submitError}
+            </div>
+          )}
+
+          <div className="mt-7 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleBack}
+              disabled={step === 0 || isSaving}
+              className="flex-1 py-3 rounded-full font-bold bg-surface-container text-primary disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              חזרה
+            </button>
+
+            {!isLastStep && (
+              <button
+                type="button"
+                onClick={handleNext}
+                disabled={isSaving}
+                className="flex-1 py-3 rounded-full font-bold primary-cta disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                המשך
+              </button>
+            )}
+
+            {isLastStep && (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isSaving}
+                className="flex-1 py-3 rounded-full font-bold primary-cta disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? 'שומר...' : 'סיום וכניסה'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ActivationSheet({ onClose, onActivate }: { onClose: () => void, onActivate: (config: any) => void }) {
   const [duration, setDuration] = useState<number | null>(15);
   const [visibility, setVisibility] = useState('friends');
@@ -277,10 +566,33 @@ function ActivationSheet({ onClose, onActivate }: { onClose: () => void, onActiv
   );
 }
 
-function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, onOpenMessages, onOpenChat }: any) {
+function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, onOpenMessages, onOpenChat, currentUserId }: any) {
   const [showActivation, setShowActivation] = useState(false);
   const [timeLeft, setTimeLeft] = useState('');
   const [showAllFriends, setShowAllFriends] = useState(false);
+  const [friendsOutside, setFriendsOutside] = useState<any[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    api
+      .getOutside()
+      .then((data) => {
+        if (!mounted) {
+          return;
+        }
+        setFriendsOutside(data.results.filter((r) => r.user.id !== currentUserId));
+      })
+      .catch(() => {
+        if (mounted) {
+          setFriendsOutside([]);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [currentUserId, isOutside]);
 
   useEffect(() => {
     if (!isOutside || !outsideConfig.endTime) {
@@ -306,22 +618,51 @@ function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, o
     return () => clearInterval(interval);
   }, [isOutside, outsideConfig.endTime, setIsOutside]);
 
-  const handleActivate = (config: any) => {
-    setOutsideConfig(config);
-    setIsOutside(true);
+  const handleActivate = async (config: any) => {
     setShowActivation(false);
+    setIsSyncing(true);
+    try {
+      const response = await api.activateStatus({
+        locationLabel: config.location,
+        note: config.note ?? '',
+        visibility: config.visibility,
+        durationMinutes: config.endTime ? Math.max(1, Math.round((config.endTime - Date.now()) / 60000)) : undefined,
+      });
+
+      const status = response.status;
+      setOutsideConfig({
+        ...config,
+        endTime: status.expiresAt ? new Date(status.expiresAt).getTime() : null,
+        location: status.locationLabel,
+        visibility: status.visibility,
+        note: status.note,
+      });
+      setIsOutside(true);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
-  const handleTurnOff = () => {
-    setIsOutside(false);
+  const handleTurnOff = async () => {
+    setIsSyncing(true);
+    try {
+      await api.deactivateStatus();
+      setIsOutside(false);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
-  const handleExtend = () => {
-    if (outsideConfig.endTime) {
+  const handleExtend = async () => {
+    setIsSyncing(true);
+    try {
+      const response = await api.extendStatus(10);
       setOutsideConfig({
         ...outsideConfig,
-        endTime: outsideConfig.endTime + 10 * 60000
+        endTime: response.status.expiresAt ? new Date(response.status.expiresAt).getTime() : outsideConfig.endTime,
       });
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -429,7 +770,7 @@ function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, o
         <div className="relative z-10 flex items-center justify-between">
           <div className="space-y-1 text-right">
             <p className="text-sm opacity-70 font-medium">מי רואה אותי?</p>
-            <h3 className="text-xl font-bold">3 חברים בדרך אליך</h3>
+            <h3 className="text-xl font-bold">{friendsOutside.length} חברים בדרך אליך</h3>
           </div>
           <div className="flex -space-x-3 space-x-reverse">
             <div className="w-10 h-10 rounded-full border-2 border-primary-soft bg-surface-container overflow-hidden">
@@ -457,44 +798,32 @@ function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, o
           </button>
         </div>
         <div className="grid grid-cols-1 gap-4">
-          <div className="bg-surface-container-lowest p-4 rounded-2xl flex items-center gap-4 transition-transform active:scale-[0.98]">
-            <div className="relative">
-              <div className="w-14 h-14 rounded-2xl bg-surface-container overflow-hidden">
-                <img className="w-full h-full object-cover" src={AVATAR_NOA} alt="Noa" />
+          {friendsOutside.length === 0 && (
+            <div className="bg-surface-container-lowest p-4 rounded-2xl text-sm text-on-surface-variant">
+              אין כרגע חברים פעילים בחוץ.
+            </div>
+          )}
+          {friendsOutside.slice(0, showAllFriends ? friendsOutside.length : 3).map((item) => (
+            <div key={item.status.id} className="bg-surface-container-lowest p-4 rounded-2xl flex items-center gap-4 transition-transform active:scale-[0.98]">
+              <div className="relative">
+                <div className="w-14 h-14 rounded-2xl bg-surface-container overflow-hidden flex items-center justify-center text-primary font-bold">
+                  {item.user.name.slice(0, 1)}
+                </div>
+                <span className="status-live-dot absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white"></span>
               </div>
-              <span className="status-live-dot absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white"></span>
-            </div>
-            <div className="flex-1 text-right">
-              <p className="font-bold text-primary">נועה לוי</p>
-              <p className="text-xs text-on-surface-variant">בספריה למשפטים • עוד 45 דק׳</p>
-            </div>
-            <button 
-              onClick={() => onOpenChat?.({ name: 'נועה לוי', img: AVATAR_NOA })}
-              aria-label="פתח צ'אט עם נועה לוי"
-              className="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center text-primary hover:text-accent transition-colors"
-            >
-              <MessageCircle className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="bg-surface-container-lowest p-4 rounded-2xl flex items-center gap-4 transition-transform active:scale-[0.98]">
-            <div className="relative">
-              <div className="w-14 h-14 rounded-2xl bg-surface-container overflow-hidden">
-                <img className="w-full h-full object-cover" src={AVATAR_ITAY} alt="Itay" />
+              <div className="flex-1 text-right">
+                <p className="font-bold text-primary">{item.user.name}</p>
+                <p className="text-xs text-on-surface-variant">{item.status.locationLabel}</p>
               </div>
-              <span className="status-live-dot absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white"></span>
+              <button
+                onClick={() => onOpenChat?.({ id: item.user.id, name: item.user.name })}
+                aria-label={`פתח צ'אט עם ${item.user.name}`}
+                className="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center text-primary hover:text-accent transition-colors"
+              >
+                <MessageCircle className="w-5 h-5" />
+              </button>
             </div>
-            <div className="flex-1 text-right">
-              <p className="font-bold text-primary">איתי אברהם</p>
-              <p className="text-xs text-on-surface-variant">בקפיטריה המרכזית • הרגע יצא</p>
-            </div>
-            <button 
-              onClick={() => onOpenChat?.({ name: 'איתי אברהם', img: AVATAR_ITAY })}
-              aria-label="פתח צ'אט עם איתי אברהם"
-              className="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center text-primary hover:text-accent transition-colors"
-            >
-              <MessageCircle className="w-5 h-5" />
-            </button>
-          </div>
+          ))}
         </div>
       </section>
 
@@ -512,6 +841,7 @@ function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, o
           </>
         )}
       </AnimatePresence>
+      {isSyncing && <div className="text-xs text-on-surface-variant">מסנכרן מול השרת...</div>}
     </motion.div>
   );
 }
@@ -1022,19 +1352,91 @@ function MessageOverlay({
   showMessages, 
   setShowMessages, 
   activeChat, 
-  setActiveChat 
+  setActiveChat,
+  currentUserId,
 }: { 
   showMessages: boolean, 
   setShowMessages: (show: boolean) => void, 
   activeChat: any, 
-  setActiveChat: (chat: any) => void 
+  setActiveChat: (chat: any) => void,
+  currentUserId: string,
 }) {
   const [messageInput, setMessageInput] = useState('');
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
 
-  const handleSendMessage = () => {
+  useEffect(() => {
+    if (!showMessages) {
+      return;
+    }
+
+    let mounted = true;
+    setIsLoadingConversations(true);
+    api
+      .getConversations()
+      .then((data) => {
+        if (mounted) {
+          setConversations(data.conversations);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setConversations([]);
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setIsLoadingConversations(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [showMessages, currentUserId]);
+
+  const openConversation = async (chat: any) => {
+    setActiveChat(chat);
+    if (!chat.conversationId) {
+      setChatMessages([]);
+      return;
+    }
+
+    setIsLoadingMessages(true);
+    try {
+      const data = await api.getMessages(chat.conversationId);
+      setChatMessages(data.messages);
+    } catch {
+      setChatMessages([]);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
     if (!messageInput.trim()) return;
+    if (!activeChat?.conversationId) {
+      setMessageInput('');
+      return;
+    }
+
+    const text = messageInput.trim();
     setMessageInput('');
-    // In a real app, this would send the message
+    try {
+      const response = await api.sendMessage(activeChat.conversationId, text);
+      setChatMessages((prev) => [...prev, response.message]);
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === activeChat.conversationId
+            ? { ...c, lastMessage: { text, createdAt: response.message.createdAt, senderId: currentUserId }, updatedAt: response.message.createdAt }
+            : c
+        )
+      );
+    } catch {
+      setMessageInput(text);
+    }
   };
 
   return (
@@ -1061,26 +1463,36 @@ function MessageOverlay({
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {[
-              { id: 1, name: 'נועה כהן', msg: 'איפה אתם יושבים?', time: '14:30', unread: true, img: 'https://picsum.photos/seed/noa/100/100' },
-              { id: 2, name: 'איתי לוי', msg: 'אני מביא את הגיטרה', time: '12:15', unread: false, img: 'https://picsum.photos/seed/itay/100/100' },
-              { id: 3, name: 'קבוצת למידה מתמטיקה', msg: 'שירה: נתראה בספריה', time: 'אתמול', unread: true, img: 'https://picsum.photos/seed/math/100/100' },
-            ].map((chat) => (
+            {isLoadingConversations && <p className="text-sm text-on-surface-variant">טוען שיחות...</p>}
+            {!isLoadingConversations && conversations.length === 0 && (
+              <p className="text-sm text-on-surface-variant">אין שיחות להצגה כרגע.</p>
+            )}
+            {conversations.map((chat) => (
               <div 
                 key={chat.id} 
-                onClick={() => setActiveChat(chat)}
+                onClick={() =>
+                  openConversation({
+                    id: chat.id,
+                    conversationId: chat.id,
+                    name: chat.peer?.name ?? 'שיחה',
+                    msg: chat.lastMessage?.text ?? 'התחל שיחה חדשה',
+                    time: chat.lastMessage ? new Date(chat.lastMessage.createdAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '',
+                    unread: (chat.unreadCount ?? 0) > 0,
+                    img: 'https://picsum.photos/seed/chat/100/100',
+                  })
+                }
                 className="flex items-center gap-4 p-4 bg-surface-container-lowest rounded-2xl border border-outline-variant/10 cursor-pointer hover:bg-surface-container-low transition-colors"
               >
                 <div className="relative">
-                  <img src={chat.img} alt={chat.name} className="w-12 h-12 rounded-full object-cover" />
-                  {chat.unread && <div className="absolute top-0 right-0 w-3 h-3 bg-accent rounded-full border-2 border-surface"></div>}
+                  <img src={'https://picsum.photos/seed/chat/100/100'} alt={chat.peer?.name ?? 'שיחה'} className="w-12 h-12 rounded-full object-cover" />
+                  {(chat.unreadCount ?? 0) > 0 && <div className="absolute top-0 right-0 w-3 h-3 bg-accent rounded-full border-2 border-surface"></div>}
                 </div>
                 <div className="flex-1">
                   <div className="flex justify-between items-center mb-1">
-                    <h4 className={`font-bold ${chat.unread ? 'text-primary' : 'text-on-surface-variant'}`}>{chat.name}</h4>
-                    <span className="text-xs text-on-surface-variant">{chat.time}</span>
+                    <h4 className={`font-bold ${(chat.unreadCount ?? 0) > 0 ? 'text-primary' : 'text-on-surface-variant'}`}>{chat.peer?.name ?? 'שיחה'}</h4>
+                    <span className="text-xs text-on-surface-variant">{chat.lastMessage ? new Date(chat.lastMessage.createdAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                   </div>
-                  <p className={`text-sm ${chat.unread ? 'text-primary font-medium' : 'text-on-surface-variant'}`}>{chat.msg}</p>
+                  <p className={`text-sm ${(chat.unreadCount ?? 0) > 0 ? 'text-primary font-medium' : 'text-on-surface-variant'}`}>{chat.lastMessage?.text ?? 'התחל שיחה חדשה'}</p>
                 </div>
               </div>
             ))}
@@ -1109,20 +1521,25 @@ function MessageOverlay({
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-container-lowest/50">
-                  {/* Mock Chat History */}
+                  {isLoadingMessages && <p className="text-sm text-on-surface-variant">טוען הודעות...</p>}
+                  {!isLoadingMessages && chatMessages.length === 0 && (
+                    <p className="text-sm text-on-surface-variant">אין הודעות בשיחה הזאת עדיין.</p>
+                  )}
                   <div className="flex flex-col gap-2">
-                    <div className="self-start bg-surface-container-low p-3 rounded-2xl rounded-tr-sm max-w-[80%]">
-                      <p className="text-sm text-on-surface">היי, איפה אתם?</p>
-                      <span className="text-[10px] text-on-surface-variant mt-1 block">14:25</span>
-                    </div>
-                    <div className="self-end bg-primary text-white p-3 rounded-2xl rounded-tl-sm max-w-[80%]">
-                      <p className="text-sm">אנחנו בדשא הגדול, ליד העץ</p>
-                      <span className="text-[10px] text-white/70 mt-1 block text-left">14:28</span>
-                    </div>
-                    <div className="self-start bg-surface-container-low p-3 rounded-2xl rounded-tr-sm max-w-[80%]">
-                      <p className="text-sm text-on-surface">{activeChat.msg}</p>
-                      <span className="text-[10px] text-on-surface-variant mt-1 block">{activeChat.time}</span>
-                    </div>
+                    {chatMessages.map((message) => {
+                      const isMine = message.senderId === currentUserId;
+                      return (
+                        <div
+                          key={message.id}
+                          className={`${isMine ? 'self-end bg-primary text-white rounded-tl-sm' : 'self-start bg-surface-container-low text-on-surface rounded-tr-sm'} p-3 rounded-2xl max-w-[80%]`}
+                        >
+                          <p className="text-sm">{message.body}</p>
+                          <span className={`text-[10px] mt-1 block ${isMine ? 'text-white/70 text-left' : 'text-on-surface-variant'}`}>
+                            {new Date(message.createdAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -1156,10 +1573,12 @@ function MessageOverlay({
 function ProfileScreen({ 
   onLogout, 
   onOpenMessages,
+  currentUser,
   key 
 }: { 
   onLogout: () => void, 
   onOpenMessages?: () => void,
+  currentUser: UserDTO | null,
   key?: string 
 }) {
   const [showPrivacySettings, setShowPrivacySettings] = useState(false);
@@ -1177,6 +1596,10 @@ function ProfileScreen({
   });
   const [notificationDigest, setNotificationDigest] = useState<'live' | 'hourly' | 'daily'>('live');
 
+  const displayName = currentUser?.fullName && currentUser.fullName !== 'New User' ? currentUser.fullName : 'משתמש חדש';
+  const displayGrade = currentUser?.grade && currentUser.grade !== 'unknown' ? currentUser.grade : 'לא הוגדר';
+  const avatarSrc = currentUser?.avatarUrl || PROFILE_MAIN;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -1187,14 +1610,14 @@ function ProfileScreen({
       <section className="flex flex-col items-center mb-10">
         <div className="relative mb-4">
           <div className="w-28 h-28 rounded-[2rem] overflow-hidden rotate-3 hover:rotate-0 transition-transform duration-500 shadow-xl">
-            <img alt="Profile Photo" className="w-full h-full object-cover" src={PROFILE_MAIN} />
+            <img alt="Profile Photo" className="w-full h-full object-cover" src={avatarSrc} />
           </div>
           <div className="absolute -bottom-1 -left-1 bg-accent w-8 h-8 rounded-full flex items-center justify-center text-on-accent shadow-[0_10px_22px_rgba(242,140,56,0.18)] border-4 border-background">
             <Pencil className="w-4 h-4 fill-current" />
           </div>
         </div>
-        <h1 className="text-2xl font-bold text-primary font-manrope mb-1">עידו ישראלי</h1>
-        <p className="text-on-surface-variant font-medium mb-6">כיתה י״ב | מסלול פיזיקה-מדמ״ח</p>
+        <h1 className="text-2xl font-bold text-primary font-manrope mb-1">{displayName}</h1>
+        <p className="text-on-surface-variant font-medium mb-6">כיתה {displayGrade}</p>
 
         <div className="flex items-center gap-4 w-full">
           <div className="flex-1 bg-surface-container-low rounded-2xl p-4 text-center">
@@ -1618,6 +2041,9 @@ function ProfileScreen({
 // --- Main App ---
 
 export default function App() {
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserDTO | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [currentTab, setCurrentTab] = useState('onboarding');
   const [isOutside, setIsOutside] = useState(false);
   const [showMessagesGlobal, setShowMessagesGlobal] = useState(false);
@@ -1628,6 +2054,75 @@ export default function App() {
     location: 'על הדשא הגדול',
     visibility: 'friends'
   });
+
+  const loadCurrentProfile = async (): Promise<UserDTO | null> => {
+    const meResponse = await api.getMe();
+    setCurrentUserProfile(meResponse.user);
+    return meResponse.user;
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    api.clearAuthToken();
+    setCurrentUserId(null);
+    setCurrentUserProfile(null);
+    setCurrentTab('onboarding');
+    setShowMessagesGlobal(false);
+    setActiveChatGlobal(null);
+  };
+
+  const handleTabChange = (tab: string) => {
+    if (currentUserId && !isProfileComplete(currentUserProfile)) {
+      setCurrentTab('profile-setup');
+      return;
+    }
+    setCurrentTab(tab);
+  };
+
+  const handleDevLogin = async () => {
+    localStorage.setItem('iasa_dev_user_id', 'u4');
+    setCurrentUserId('u4');
+    api.setAuthToken('', 'u4');
+
+    try {
+      const profile = await loadCurrentProfile();
+      setCurrentTab(isProfileComplete(profile) ? 'now' : 'profile-setup');
+    } catch (_error) {
+      setCurrentUserProfile(null);
+      setCurrentTab('profile-setup');
+    }
+  };
+
+  // Initialize auth on app load
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const token = localStorage.getItem('iasa_auth_token');
+        if (token) {
+          api.setAuthToken(token, 'temp-id');
+          const { user: user_data, error } = await getCurrentUser();
+          if (!error && user_data?.id) {
+            setCurrentUserId(user_data.id);
+            api.setAuthToken(token, user_data.id);
+            const profile = await loadCurrentProfile();
+            setCurrentTab(isProfileComplete(profile) ? 'now' : 'profile-setup');
+            return;
+          }
+        }
+
+        setCurrentTab('onboarding');
+      } finally {
+        setIsInitializing(false);
+      }
+    };
+    initAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!isInitializing && currentUserId && currentUserProfile && !isProfileComplete(currentUserProfile) && currentTab !== 'profile-setup') {
+      setCurrentTab('profile-setup');
+    }
+  }, [isInitializing, currentUserId, currentUserProfile, currentTab]);
 
   const handleOpenChat = (user: any) => {
     setActiveChatGlobal({
@@ -1641,15 +2136,43 @@ export default function App() {
     setShowMessagesGlobal(true);
   };
 
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen app-bg flex items-center justify-center px-6">
+        <div className="section-card px-6 py-5 text-center max-w-sm w-full">
+          <p className="text-primary text-lg font-extrabold">טוענים את הפרופיל שלך...</p>
+          <p className="text-on-surface-variant text-sm mt-2">עוד רגע בפנים.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (currentTab === 'onboarding') {
-    return <OnboardingScreen onLogin={() => setCurrentTab('now')} />;
+    return <OnboardingScreen onLogin={handleDevLogin} />;
+  }
+
+  if (!currentUserId) {
+    return <OnboardingScreen onLogin={handleDevLogin} />;
+  }
+
+  if (currentTab === 'profile-setup') {
+    return (
+      <ProfileSetupWizard
+        initialUser={currentUserProfile}
+        onComplete={(user) => {
+          setCurrentUserProfile(user);
+          setCurrentTab('now');
+        }}
+        onLogout={handleLogout}
+      />
+    );
   }
 
   return (
     <div className="min-h-screen app-bg text-on-surface pb-[calc(6.25rem+env(safe-area-inset-bottom))] font-heebo">
       <TopNav 
         onMessagesClick={() => setShowMessagesGlobal(true)} 
-        onProfileClick={() => setCurrentTab('profile')}
+        onProfileClick={() => handleTabChange('profile')}
         onNotificationsClick={() => setShowNotificationsModal(true)}
       />
       <main className="pt-20 sm:pt-24 px-4 sm:px-6 max-w-2xl mx-auto">
@@ -1663,6 +2186,7 @@ export default function App() {
               setOutsideConfig={setOutsideConfig} 
               onOpenMessages={() => setShowMessagesGlobal(true)}
               onOpenChat={handleOpenChat}
+              currentUserId={currentUserId}
             />
           )}
           {currentTab === 'outside' && <OutsideScreen key="outside" onOpenMessages={() => setShowMessagesGlobal(true)} onOpenChat={handleOpenChat} />}
@@ -1670,19 +2194,21 @@ export default function App() {
           {currentTab === 'profile' && (
             <ProfileScreen 
               key="profile" 
-              onLogout={() => setCurrentTab('onboarding')} 
+              onLogout={handleLogout}
               onOpenMessages={() => setShowMessagesGlobal(true)}
+              currentUser={currentUserProfile}
             />
           )}
         </AnimatePresence>
       </main>
-      <BottomNav currentTab={currentTab} onChange={setCurrentTab} />
+      <BottomNav currentTab={currentTab} onChange={handleTabChange} />
       
       <MessageOverlay 
         showMessages={showMessagesGlobal} 
         setShowMessages={setShowMessagesGlobal} 
         activeChat={activeChatGlobal} 
-        setActiveChat={setActiveChatGlobal} 
+        setActiveChat={setActiveChatGlobal}
+        currentUserId={currentUserId}
       />
 
       {/* Notifications Modal */}

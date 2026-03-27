@@ -6,3 +6,16 @@ coverage/
 *.log
 .env*
 !.env.example
+.vscode/
+check-*.png
+activation-sheet.png
+events.png
+main-now.png
+map.png
+onboarding.png
+outside.png
+profile.png
+*-report.json
+codebase-analysis.json
+persist-jwt.txt
+tmp_copy_verify.cjs
