@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api, type LocationMode, type UserDTO, type VisibilityScope } from './api';
 import { supabase, getCurrentUser } from './supabase';
+import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
 import {
   Bell,
   X,
@@ -164,7 +165,7 @@ function BottomNav({ currentTab, onChange }: { currentTab: string, onChange: (ta
 
 // --- Screens ---
 
-function OnboardingScreen({ onLogin }: { onLogin: () => void }) {
+function LoginScreen({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="relative min-h-screen bg-surface text-on-surface antialiased overflow-hidden flex flex-col items-center justify-between px-5 sm:px-8 pt-10 pb-8 sm:py-16 text-center">
       <div className="fixed inset-0 z-0">
@@ -2328,7 +2329,7 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<UserDTO | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [currentTab, setCurrentTab] = useState('onboarding');
+  const [currentTab, setCurrentTab] = useState('welcome-flow');
   const [isOutside, setIsOutside] = useState(false);
   const [showMessagesGlobal, setShowMessagesGlobal] = useState(false);
   const [activeChatGlobal, setActiveChatGlobal] = useState<any>(null);
@@ -2350,7 +2351,7 @@ export default function App() {
     api.clearAuthToken();
     setCurrentUserId(null);
     setCurrentUserProfile(null);
-    setCurrentTab('onboarding');
+    setCurrentTab('login');
     setShowMessagesGlobal(false);
     setActiveChatGlobal(null);
   };
@@ -2394,7 +2395,8 @@ export default function App() {
           }
         }
 
-        setCurrentTab('onboarding');
+        const hasOnboarded = localStorage.getItem('iguana_onboarding_completed') === 'true';
+        setCurrentTab(hasOnboarded ? 'login' : 'welcome-flow');
       } finally {
         setIsInitializing(false);
       }
@@ -2431,12 +2433,16 @@ export default function App() {
     );
   }
 
-  if (currentTab === 'onboarding') {
-    return <OnboardingScreen onLogin={handleDevLogin} />;
+  if (currentTab === 'welcome-flow') {
+    return <OnboardingFlow onComplete={() => setCurrentTab('login')} />;
+  }
+
+  if (currentTab === 'login') {
+    return <LoginScreen onLogin={handleDevLogin} />;
   }
 
   if (!currentUserId) {
-    return <OnboardingScreen onLogin={handleDevLogin} />;
+    return <LoginScreen onLogin={handleDevLogin} />;
   }
 
   if (currentTab === 'profile-setup') {
