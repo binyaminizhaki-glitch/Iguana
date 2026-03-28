@@ -5,7 +5,11 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "skipLibCheck": true,
-    "noEmit": true,
+    "noEmit": false,
+    "outDir": "./dist-server",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
     "types": ["node"]
   },
   "include": ["server/**/*.ts"]

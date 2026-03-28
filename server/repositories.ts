@@ -25,8 +25,8 @@ function toUser(profile: ProfileRow, settings?: UserSettingsRow): Types.User {
     full_name: profile.full_name,
     grade: profile.grade,
     avatar_url: profile.avatar_url ?? undefined,
-    precise_location_enabled: settings?.precise_location_enabled ?? false,
-    default_visibility: settings?.default_visibility ?? 'friends',
+    precise_location_enabled: settings?.precise_location_enabled ?? true,
+    default_visibility: settings?.default_visibility ?? 'all',
     created_at: profile.created_at,
     updated_at: profile.updated_at,
   };
@@ -57,6 +57,20 @@ async function getUsersWithSettings(client: ReturnType<typeof getSupabaseUserCli
 
   const settingsByUserId = new Map((settings ?? []).map((row) => [row.user_id, row as UserSettingsRow]));
   return (profiles ?? []).map((profile) => toUser(profile as ProfileRow, settingsByUserId.get(profile.id)));
+}
+
+async function areUsersFriends(client: ReturnType<typeof getSupabaseUserClient>, userA: string, userB: string): Promise<boolean> {
+  const { data, error } = await client
+    .from('friendships')
+    .select('id')
+    .or(`and(user_a.eq.${userA},user_b.eq.${userB}),and(user_a.eq.${userB},user_b.eq.${userA})`)
+    .limit(1);
+
+  if (error) {
+    throw new Error(`Failed checking friendship for location visibility: ${error.message}`);
+  }
+
+  return (data ?? []).length > 0;
 }
 
 async function enrichEvents(
@@ -122,6 +136,29 @@ export interface IStatusRepository {
   }): Promise<{ status: Types.UserStatus; created: boolean }>;
   extendStatus(userId: string, addMinutes: number): Promise<Types.UserStatus | undefined>;
   getVisibleStatusesFor(viewerId: string): Promise<Array<{ status: Types.UserStatus; user: Types.User }>>;
+}
+
+export interface ILocationRepository {
+  createSample(input: {
+    userId: string;
+    latitude: number;
+    longitude: number;
+    accuracyM?: number;
+    source: Types.LocationSource;
+    locationMode: Types.LocationMode;
+    zoneId?: string;
+  }): Promise<Types.LocationSample>;
+  getLatestSampleForUser(userId: string): Promise<Types.LocationSample | undefined>;
+  getVisibleLocationFeed(viewerId: string): Promise<Array<{ status: Types.UserStatus; user: Types.User; sample?: Types.LocationSample }>>;
+}
+
+export interface IConsentRepository {
+  recordPreciseLocationConsent(input: {
+    userId: string;
+    policyVersion: string;
+    isGranted: boolean;
+  }): Promise<Types.ConsentEvent>;
+  getLatestPreciseLocationConsent(userId: string): Promise<Types.ConsentEvent | undefined>;
 }
 
 export interface IEventRepository {
@@ -538,6 +575,111 @@ export function createRepositories(accessToken: string) {
     },
   };
 
+  const locationRepository: ILocationRepository = {
+    async createSample({ userId, latitude, longitude, accuracyM, source, locationMode, zoneId }) {
+      const nowIso = new Date().toISOString();
+      const { data, error } = await client
+        .from('location_samples')
+        .insert({
+          user_id: userId,
+          latitude,
+          longitude,
+          accuracy_m: accuracyM ?? null,
+          source,
+          location_mode: locationMode,
+          zone_id: zoneId ?? null,
+          captured_at: nowIso,
+        })
+        .select('id, user_id, latitude, longitude, accuracy_m, source, location_mode, zone_id, captured_at, created_at, expires_at')
+        .single();
+
+      if (error) {
+        throw new Error(`Failed creating location sample: ${error.message}`);
+      }
+
+      return data as Types.LocationSample;
+    },
+    async getLatestSampleForUser(userId) {
+      const { data, error } = await client
+        .from('location_samples')
+        .select('id, user_id, latitude, longitude, accuracy_m, source, location_mode, zone_id, captured_at, created_at, expires_at')
+        .eq('user_id', userId)
+        .order('captured_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(`Failed loading latest location sample: ${error.message}`);
+      }
+
+      return (data as Types.LocationSample | null) ?? undefined;
+    },
+    async getVisibleLocationFeed(viewerId) {
+      const visibleStatuses = await statusRepository.getVisibleStatusesFor(viewerId);
+      const rows: Array<{ status: Types.UserStatus; user: Types.User; sample?: Types.LocationSample }> = [];
+
+      for (const row of visibleStatuses) {
+        let sample: Types.LocationSample | undefined;
+        if (row.user.id === viewerId) {
+          sample = await this.getLatestSampleForUser(row.user.id);
+        } else if (row.user.precise_location_enabled) {
+          const friends = await areUsersFriends(client, viewerId, row.user.id);
+          if (friends) {
+            sample = await this.getLatestSampleForUser(row.user.id);
+          }
+        }
+
+        rows.push({
+          status: row.status,
+          user: row.user,
+          sample,
+        });
+      }
+
+      return rows;
+    },
+  };
+
+  const consentRepository: IConsentRepository = {
+    async recordPreciseLocationConsent({ userId, policyVersion, isGranted }) {
+      const nowIso = new Date().toISOString();
+      const { data, error } = await client
+        .from('consent_events')
+        .insert({
+          user_id: userId,
+          consent_type: 'precise_location',
+          policy_version: policyVersion,
+          is_granted: isGranted,
+          granted_at: isGranted ? nowIso : null,
+          revoked_at: isGranted ? null : nowIso,
+        })
+        .select('id, user_id, consent_type, policy_version, is_granted, granted_at, revoked_at, created_at')
+        .single();
+
+      if (error) {
+        throw new Error(`Failed recording precise location consent: ${error.message}`);
+      }
+
+      return data as Types.ConsentEvent;
+    },
+    async getLatestPreciseLocationConsent(userId) {
+      const { data, error } = await client
+        .from('consent_events')
+        .select('id, user_id, consent_type, policy_version, is_granted, granted_at, revoked_at, created_at')
+        .eq('user_id', userId)
+        .eq('consent_type', 'precise_location')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(`Failed loading latest precise location consent: ${error.message}`);
+      }
+
+      return (data as Types.ConsentEvent | null) ?? undefined;
+    },
+  };
+
   const eventRepository: IEventRepository = {
     async getAllEvents() {
       const { data, error } = await client
@@ -775,6 +917,8 @@ export function createRepositories(accessToken: string) {
     userRepository,
     friendshipRepository,
     statusRepository,
+    locationRepository,
+    consentRepository,
     eventRepository,
     conversationRepository,
     notificationRepository,
@@ -943,6 +1087,78 @@ function createMemoryRepositories() {
     },
   };
 
+  const locationRepository: ILocationRepository = {
+    async createSample({ userId, latitude, longitude, accuracyM, source, locationMode, zoneId }) {
+      const sample: Types.LocationSample = {
+        id: db.nextId('ls'),
+        user_id: userId,
+        latitude,
+        longitude,
+        accuracy_m: accuracyM,
+        source,
+        location_mode: locationMode,
+        zone_id: zoneId,
+        captured_at: db.now(),
+        created_at: db.now(),
+      };
+      db.locationSamples.push(sample);
+      return sample;
+    },
+    async getLatestSampleForUser(userId) {
+      const sorted = [...db.locationSamples]
+        .filter((sample) => sample.user_id === userId)
+        .sort((a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime());
+
+      return sorted[0];
+    },
+    async getVisibleLocationFeed(viewerId) {
+      const visibleStatuses = await statusRepository.getVisibleStatusesFor(viewerId);
+
+      return Promise.all(
+        visibleStatuses.map(async ({ status, user }) => {
+          let sample: Types.LocationSample | undefined;
+          const canSeePrecise = user.id === viewerId
+            || (user.precise_location_enabled && (await friendshipRepository.areFriends(viewerId, user.id)));
+
+          if (canSeePrecise) {
+            sample = await this.getLatestSampleForUser(user.id);
+          }
+
+          return {
+            status,
+            user,
+            sample,
+          };
+        }),
+      );
+    },
+  };
+
+  const consentRepository: IConsentRepository = {
+    async recordPreciseLocationConsent({ userId, policyVersion, isGranted }) {
+      const nowIso = db.now();
+      const event: Types.ConsentEvent = {
+        id: db.nextId('ce'),
+        user_id: userId,
+        consent_type: 'precise_location',
+        policy_version: policyVersion,
+        is_granted: isGranted,
+        granted_at: isGranted ? nowIso : undefined,
+        revoked_at: isGranted ? undefined : nowIso,
+        created_at: nowIso,
+      };
+      db.consentEvents.push(event);
+      return event;
+    },
+    async getLatestPreciseLocationConsent(userId) {
+      const sorted = [...db.consentEvents]
+        .filter((event) => event.user_id === userId && event.consent_type === 'precise_location')
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      return sorted[0];
+    },
+  };
+
   const eventRepository: IEventRepository = {
     async getAllEvents() {
       return db.events;
@@ -1058,6 +1274,8 @@ function createMemoryRepositories() {
     userRepository,
     friendshipRepository,
     statusRepository,
+    locationRepository,
+    consentRepository,
     eventRepository,
     conversationRepository,
     notificationRepository,

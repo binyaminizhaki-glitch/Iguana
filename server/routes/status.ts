@@ -13,10 +13,12 @@ statusRouter.post('/activate', async (req: AuthenticatedRequest, res) => {
     const user = req.user!;
     const locationLabel = String(req.body?.locationLabel ?? '').trim();
     const note = String(req.body?.note ?? '').trim();
-    const visibilityInput = String(req.body?.visibility ?? user.default_visibility);
+    const visibilityInput = String(req.body?.visibility ?? user.default_visibility ?? 'all');
     const visibility: UserStatus['visibility'] =
       visibilityInput === 'all' || visibilityInput === 'grade' ? visibilityInput : 'friends';
-    const durationMinutes = Number(req.body?.durationMinutes ?? 15);
+    const rawDuration = req.body?.durationMinutes;
+    const parsedDuration = typeof rawDuration === 'number' ? rawDuration : Number(rawDuration);
+    const durationMinutes = Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : undefined;
 
     if (!locationLabel) {
       res.status(400).json({ error: 'locationLabel is required.' });

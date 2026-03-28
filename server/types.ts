@@ -1,4 +1,6 @@
 export type VisibilityScope = 'friends' | 'grade' | 'all';
+export type LocationMode = 'zone' | 'precise' | 'manual';
+export type LocationSource = 'gps' | 'manual' | 'app';
 
 export interface User {
   id: string;
@@ -39,6 +41,31 @@ export interface UserStatus {
   starts_at: string;
   expires_at?: string;
   updated_at: string;
+}
+
+export interface LocationSample {
+  id: string;
+  user_id: string;
+  latitude?: number;
+  longitude?: number;
+  accuracy_m?: number;
+  source: LocationSource;
+  location_mode: LocationMode;
+  zone_id?: string;
+  captured_at: string;
+  created_at: string;
+  expires_at?: string;
+}
+
+export interface ConsentEvent {
+  id: string;
+  user_id: string;
+  consent_type: 'precise_location';
+  policy_version: string;
+  is_granted: boolean;
+  granted_at?: string;
+  revoked_at?: string;
+  created_at: string;
 }
 
 export interface EventItem {

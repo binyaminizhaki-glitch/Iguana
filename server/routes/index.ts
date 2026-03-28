@@ -7,6 +7,7 @@ import { eventsRouter } from './events.js';
 import { chatRouter } from './chat.js';
 import { notificationsRouter } from './notifications.js';
 import { metaRouter } from './meta.js';
+import { locationRouter } from './location.js';
 
 export const apiRouter = Router();
 
@@ -18,3 +19,4 @@ apiRouter.use('/events', eventsRouter);
 apiRouter.use('/chat', chatRouter);
 apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/meta', metaRouter);
+apiRouter.use('/location', locationRouter);

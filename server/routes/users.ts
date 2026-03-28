@@ -119,3 +119,52 @@ usersRouter.patch('/me/profile', async (req: AuthenticatedRequest, res) => {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed updating user profile.' });
   }
 });
+
+usersRouter.post('/me/consent/location', async (req: AuthenticatedRequest, res) => {
+  try {
+    const { userRepository, consentRepository } = createRepositories(req.accessToken ?? '');
+    const user = await userRepository.getUserById(req.user!.id);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const isGranted = req.body?.isGranted;
+    const policyVersionRaw = req.body?.policyVersion;
+    const policyVersion = typeof policyVersionRaw === 'string' && policyVersionRaw.trim()
+      ? policyVersionRaw.trim()
+      : 'v1';
+
+    if (typeof isGranted !== 'boolean') {
+      res.status(400).json({ error: 'isGranted must be a boolean.' });
+      return;
+    }
+
+    const consentEvent = await consentRepository.recordPreciseLocationConsent({
+      userId: user.id,
+      policyVersion,
+      isGranted,
+    });
+
+    await userRepository.updateUser(user.id, {
+      precise_location_enabled: isGranted,
+    });
+
+    const updatedUser = await userRepository.getUserById(user.id);
+
+    res.status(201).json({
+      user: updatedUser ? mapUser(updatedUser) : null,
+      consent: {
+        id: consentEvent.id,
+        consentType: consentEvent.consent_type,
+        policyVersion: consentEvent.policy_version,
+        isGranted: consentEvent.is_granted,
+        grantedAt: consentEvent.granted_at,
+        revokedAt: consentEvent.revoked_at,
+        createdAt: consentEvent.created_at,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed recording location consent.' });
+  }
+});

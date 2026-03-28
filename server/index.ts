@@ -1,5 +1,7 @@
-import 'dotenv/config.js';
-import { createApp } from './app.js';
+import * as dotenv from 'dotenv';
+
+dotenv.config();
+const { createApp } = await import('./app.js');
 
 const port = Number(process.env.API_PORT ?? 4000);
 const app = createApp();

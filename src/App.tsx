@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { api, type UserDTO, type VisibilityScope } from './api';
+import { api, type LocationMode, type UserDTO, type VisibilityScope } from './api';
 import { supabase, getCurrentUser } from './supabase';
 import {
   Bell,
@@ -55,6 +55,23 @@ const VISIBILITY_OPTIONS: Array<{ value: VisibilityScope; label: string; descrip
   { value: 'grade', label: 'כל השכבה', description: 'גם תלמידים מהשכבה שלך יראו שאתה בחוץ.' },
   { value: 'all', label: 'כולם', description: 'כל תלמידי בית הספר יוכלו לראות אותך.' },
 ];
+
+type GeoPermissionState = 'idle' | 'requesting' | 'granted' | 'denied' | 'unsupported' | 'error';
+
+function getCurrentPositionPromise(): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Geolocation is not supported in this browser.'));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 30000,
+    });
+  });
+}
 
 function isProfileComplete(user: UserDTO | null): boolean {
   if (!user) {
@@ -115,7 +132,7 @@ function BottomNav({ currentTab, onChange }: { currentTab: string, onChange: (ta
   ];
 
   return (
-    <nav className="fixed bottom-0 w-full z-50 glass-nav rounded-t-[24px] flex flex-row-reverse justify-around items-center h-[76px] sm:h-20 pb-safe px-1 sm:px-2">
+    <nav className="fixed bottom-0 w-full z-50 glass-nav rounded-t-[24px] flex justify-around items-center h-[76px] sm:h-20 pb-safe px-1 sm:px-2">
       {tabs.map((tab) => {
         const isActive = currentTab === tab.id;
         const Icon = tab.icon;
@@ -216,9 +233,9 @@ function ProfileSetupWizard({
   const [form, setForm] = useState({
     fullName: initialUser?.fullName && initialUser.fullName !== 'New User' ? initialUser.fullName : '',
     grade: initialUser?.grade && initialUser.grade !== 'unknown' ? initialUser.grade : '',
-    defaultVisibility: (initialUser?.defaultVisibility ?? 'friends') as VisibilityScope,
+    defaultVisibility: (initialUser?.defaultVisibility ?? 'all') as VisibilityScope,
     avatarUrl: initialUser?.avatarUrl ?? '',
-    preciseLocationEnabled: initialUser?.preciseLocationEnabled ?? false,
+    preciseLocationEnabled: initialUser?.preciseLocationEnabled ?? true,
   });
 
   const stepTitles = ['עליך', 'לימודים', 'פרטיות', 'תמונה'];
@@ -448,14 +465,25 @@ function ProfileSetupWizard({
             )}
 
             {isLastStep && (
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={isSaving}
-                className="flex-1 py-3 rounded-full font-bold primary-cta disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSaving ? 'שומר...' : 'סיום וכניסה'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={isSaving}
+                  className="flex-1 py-3 rounded-full font-bold primary-cta disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSaving ? 'שומר...' : 'סיום וכניסה'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={isSaving}
+                  className="flex-1 py-3 rounded-full font-bold bg-surface-container text-primary disabled:opacity-45 disabled:cursor-not-allowed"
+                  title="דלג על תמונת פרופיל וסיים את ההגדרה"
+                >
+                  {isSaving ? 'דלג...' : 'דלג'}
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -464,20 +492,71 @@ function ProfileSetupWizard({
   );
 }
 
-function ActivationSheet({ onClose, onActivate }: { onClose: () => void, onActivate: (config: any) => void }) {
-  const [duration, setDuration] = useState<number | null>(15);
-  const [visibility, setVisibility] = useState('friends');
+function ActivationSheet({
+  onClose,
+  onActivate,
+  defaultVisibility,
+  preciseEnabled,
+}: {
+  onClose: () => void;
+  onActivate: (config: any) => void;
+  defaultVisibility?: VisibilityScope;
+  preciseEnabled?: boolean;
+}) {
+  const [duration, setDuration] = useState<number | null>(null);
+  const [visibility, setVisibility] = useState<VisibilityScope>(defaultVisibility ?? 'all');
   const [location, setLocation] = useState('');
   const [note, setNote] = useState('');
+  const [locationMode, setLocationMode] = useState<LocationMode>('precise');
+  const [geoPermission, setGeoPermission] = useState<GeoPermissionState>('idle');
+  const [geoError, setGeoError] = useState<string | null>(null);
+  const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number; accuracyM?: number } | null>(null);
+
+  useEffect(() => {
+    setVisibility(defaultVisibility ?? 'all');
+  }, [defaultVisibility]);
 
   const handleActivate = () => {
     onActivate({
       endTime: duration ? Date.now() + duration * 60000 : null,
       visibility,
       location: location || 'בקמפוס',
-      note
+      note,
+      locationMode,
+      coordinates,
     });
   };
+
+  const handleUseCurrentLocation = async () => {
+    if (!navigator.geolocation) {
+      setGeoPermission('unsupported');
+      setGeoError('הדפדפן לא תומך בשירותי מיקום.');
+      return;
+    }
+
+    setGeoPermission('requesting');
+    setGeoError(null);
+    try {
+      const position = await getCurrentPositionPromise();
+      const latitude = position.coords.latitude;
+      const longitude = position.coords.longitude;
+      const accuracyM = position.coords.accuracy;
+
+      setCoordinates({ latitude, longitude, accuracyM });
+      setGeoPermission('granted');
+      setLocation(`GPS: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+    } catch (error) {
+      const geoMessage = error instanceof GeolocationPositionError
+        ? error.code === error.PERMISSION_DENIED
+          ? 'הגישה למיקום נדחתה. אפשר להמשיך עם הזנה ידנית.'
+          : 'לא הצלחנו למשוך מיקום כרגע. נסו שוב.'
+        : 'לא הצלחנו למשוך מיקום כרגע.';
+      setGeoPermission('denied');
+      setGeoError(geoMessage);
+    }
+  };
+
+  const canUsePrecise = preciseEnabled ?? true;
 
   return (
     <motion.div
@@ -536,6 +615,41 @@ function ActivationSheet({ onClose, onActivate }: { onClose: () => void, onActiv
 
       <div className="mb-8 text-right">
         <h3 className="text-sm font-bold text-primary mb-3">איפה אתה? (אופציונלי)</h3>
+        <div className="flex flex-wrap gap-2 mb-3">
+          <button
+            type="button"
+            onClick={() => setLocationMode('zone')}
+            className={`px-3 py-2 rounded-full text-xs font-bold transition-colors ${locationMode === 'zone' ? 'bg-primary text-white' : 'bg-surface-container-low text-on-surface-variant'}`}
+          >
+            אזור בלבד
+          </button>
+          <button
+            type="button"
+            onClick={() => setLocationMode('manual')}
+            className={`px-3 py-2 rounded-full text-xs font-bold transition-colors ${locationMode === 'manual' ? 'bg-primary text-white' : 'bg-surface-container-low text-on-surface-variant'}`}
+          >
+            ידני
+          </button>
+          <button
+            type="button"
+            disabled={!canUsePrecise}
+            onClick={() => setLocationMode('precise')}
+            className={`px-3 py-2 rounded-full text-xs font-bold transition-colors ${locationMode === 'precise' ? 'bg-primary text-white' : 'bg-surface-container-low text-on-surface-variant'} ${!canUsePrecise ? 'opacity-40 cursor-not-allowed' : ''}`}
+          >
+            מדויק (GPS)
+          </button>
+          <button
+            type="button"
+            onClick={handleUseCurrentLocation}
+            className="px-3 py-2 rounded-full text-xs font-bold bg-accent-soft text-accent-foreground"
+          >
+            השתמש במיקום שלי
+          </button>
+        </div>
+        {geoPermission === 'requesting' && <p className="text-xs text-on-surface-variant mb-2">מבקש הרשאת מיקום...</p>}
+        {geoPermission === 'granted' && <p className="text-xs text-primary mb-2">מיקום עודכן מהטלפון.</p>}
+        {geoError && <p className="text-xs text-error mb-2">{geoError}</p>}
+        {!canUsePrecise && <p className="text-xs text-on-surface-variant mb-2">שיתוף מדויק כבוי בפרטיות שלך, לכן נשלח אזור בלבד.</p>}
         <input
           type="text"
           aria-label="מיקום"
@@ -566,7 +680,16 @@ function ActivationSheet({ onClose, onActivate }: { onClose: () => void, onActiv
   );
 }
 
-function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, onOpenMessages, onOpenChat, currentUserId }: any) {
+function NowScreen({
+  isOutside,
+  setIsOutside,
+  outsideConfig,
+  setOutsideConfig,
+  onOpenMessages,
+  onOpenChat,
+  currentUserId,
+  currentUser,
+}: any) {
   const [showActivation, setShowActivation] = useState(false);
   const [timeLeft, setTimeLeft] = useState('');
   const [showAllFriends, setShowAllFriends] = useState(false);
@@ -575,22 +698,27 @@ function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, o
 
   useEffect(() => {
     let mounted = true;
-    api
-      .getOutside()
-      .then((data) => {
+
+    const loadOutside = async () => {
+      try {
+        const data = await api.getOutsideLocationFeed();
         if (!mounted) {
           return;
         }
         setFriendsOutside(data.results.filter((r) => r.user.id !== currentUserId));
-      })
-      .catch(() => {
+      } catch {
         if (mounted) {
           setFriendsOutside([]);
         }
-      });
+      }
+    };
+
+    loadOutside();
+    const interval = setInterval(loadOutside, 20000);
 
     return () => {
       mounted = false;
+      clearInterval(interval);
     };
   }, [currentUserId, isOutside]);
 
@@ -622,12 +750,29 @@ function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, o
     setShowActivation(false);
     setIsSyncing(true);
     try {
+      if (config.locationMode === 'precise') {
+        await api.recordLocationConsent({
+          isGranted: true,
+          policyVersion: 'v1',
+        });
+      }
+
       const response = await api.activateStatus({
         locationLabel: config.location,
         note: config.note ?? '',
         visibility: config.visibility,
-        durationMinutes: config.endTime ? Math.max(1, Math.round((config.endTime - Date.now()) / 60000)) : undefined,
+        durationMinutes: config.endTime ? Math.max(1, Math.round((config.endTime - Date.now()) / 60000)) : 0,
       });
+
+      if (config.coordinates) {
+        await api.createLocationSample({
+          latitude: config.coordinates.latitude,
+          longitude: config.coordinates.longitude,
+          accuracyM: config.coordinates.accuracyM,
+          source: 'gps',
+          locationMode: config.locationMode,
+        });
+      }
 
       const status = response.status;
       setOutsideConfig({
@@ -814,6 +959,11 @@ function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, o
               <div className="flex-1 text-right">
                 <p className="font-bold text-primary">{item.user.name}</p>
                 <p className="text-xs text-on-surface-variant">{item.status.locationLabel}</p>
+                {item.sample?.capturedAt && (
+                  <p className="text-[11px] text-on-surface-variant/80">
+                    עודכן: {new Date(item.sample.capturedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => onOpenChat?.({ id: item.user.id, name: item.user.name })}
@@ -837,7 +987,12 @@ function NowScreen({ isOutside, setIsOutside, outsideConfig, setOutsideConfig, o
               onClick={() => setShowActivation(false)}
               className="fixed inset-0 z-[50] bg-on-surface/40 backdrop-blur-sm"
             />
-            <ActivationSheet onClose={() => setShowActivation(false)} onActivate={handleActivate} />
+            <ActivationSheet
+              onClose={() => setShowActivation(false)}
+              onActivate={handleActivate}
+              defaultVisibility={currentUser?.defaultVisibility}
+              preciseEnabled={currentUser?.preciseLocationEnabled}
+            />
           </>
         )}
       </AnimatePresence>
@@ -863,17 +1018,71 @@ const CAMPUS_ZONES = [
   { id: 'labs', name: 'מעבדות', className: 'bottom-[5%] left-[5%] w-[45%] h-[25%] rounded-3xl map-zone-quiet' },
 ];
 
-function OutsideScreen({ onOpenMessages, onOpenChat, key }: { onOpenMessages?: () => void, onOpenChat?: (user: any) => void, key?: string }) {
+function OutsideScreen({ onOpenMessages, onOpenChat }: { onOpenMessages?: () => void, onOpenChat?: (user: any) => void }) {
   const [audience, setAudience] = useState<'friends' | 'all'>('friends');
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [searchQuery, setSearchQuery] = useState('');
+  const [outsideUsers, setOutsideUsers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   const [selectedActivityType, setSelectedActivityType] = useState<string | null>('\u05dc\u05d9\u05de\u05d5\u05d3/\u05de\u05e4\u05d2\u05e9');
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [showFilterMenu, setShowFilterMenu] = useState<string | null>(null);
 
-  const visibleUsers = MOCK_USERS.filter(u => {
+  useEffect(() => {
+    let mounted = true;
+
+    const loadOutside = async (showLoader = false) => {
+      if (showLoader) {
+        setIsLoading(true);
+      }
+      setLoadError(null);
+
+      try {
+        const data = await api.getOutsideLocationFeed();
+        if (!mounted) {
+          return;
+        }
+
+        const mapped = data.results.map((item) => ({
+          id: item.user.id,
+          name: item.user.name,
+          grade: item.user.grade,
+          time: new Date(item.sample?.capturedAt ?? item.status.updatedAt).toLocaleTimeString('he-IL', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+          location: item.status.locationLabel,
+          zoneId: item.sample?.zoneId ?? item.status.zoneId,
+          img: `https://picsum.photos/seed/${item.user.id}/100/100`,
+          isFriend: Boolean((item.user as any).isFriend),
+        }));
+
+        setOutsideUsers(mapped);
+      } catch {
+        if (mounted) {
+          setOutsideUsers([]);
+          setLoadError('לא הצלחנו לטעון נתוני מפה כרגע.');
+        }
+      } finally {
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadOutside(true);
+    const interval = setInterval(() => loadOutside(false), 20000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const visibleUsers = outsideUsers.filter(u => {
     if (audience === 'friends' && !u.isFriend) return false;
     if (searchQuery && !u.name.includes(searchQuery)) return false;
     return true;
@@ -893,13 +1102,13 @@ function OutsideScreen({ onOpenMessages, onOpenChat, key }: { onOpenMessages?: (
             onClick={() => setAudience('friends')}
             className={`flex-1 py-1.5 text-sm font-bold rounded-full transition-all ${audience === 'friends' ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container'}`}
           >
-            חברים ({MOCK_USERS.filter(u => u.isFriend).length})
+            חברים ({outsideUsers.filter((u) => u.isFriend).length})
           </button>
           <button 
             onClick={() => setAudience('all')}
             className={`flex-1 py-1.5 text-sm font-bold rounded-full transition-all ${audience === 'all' ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container'}`}
           >
-            כולם ({MOCK_USERS.length})
+            כולם ({outsideUsers.length})
           </button>
         </div>
         <button 
@@ -963,7 +1172,28 @@ function OutsideScreen({ onOpenMessages, onOpenChat, key }: { onOpenMessages?: (
 
       {/* Content Area */}
       <AnimatePresence mode="wait">
-        {viewMode === 'map' ? (
+        {isLoading ? (
+          <motion.div
+            key="loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="bg-surface-container-low p-6 rounded-2xl text-center text-on-surface-variant"
+          >
+            טוען נתוני מיקום...
+          </motion.div>
+        ) : loadError ? (
+          <motion.div
+            key="error"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="bg-danger-soft p-6 rounded-2xl text-center text-error"
+          >
+            {loadError}
+          </motion.div>
+        ) : (
+          viewMode === 'map' ? (
           <motion.div
             key="map"
             initial={{ opacity: 0, scale: 0.95 }}
@@ -1049,13 +1279,14 @@ function OutsideScreen({ onOpenMessages, onOpenChat, key }: { onOpenMessages?: (
             <div className="bg-primary/5 p-1 rounded-2xl border border-primary/10 mt-2">
               <div className="bg-surface-container-lowest p-5 rounded-xl flex items-center justify-between">
                 <div className="text-right">
-                  <h4 className="font-bold text-primary">עוד {MOCK_USERS.length} אנשים בחוץ</h4>
+                  <h4 className="font-bold text-primary">עוד {outsideUsers.length} אנשים בחוץ</h4>
                   <p className="text-sm text-on-surface-variant">מרביתם כרגע באזור הקפיטריה</p>
                 </div>
                 <Users className="w-8 h-8 text-secondary" />
               </div>
             </div>
           </motion.div>
+          )
         )}
       </AnimatePresence>
     </motion.div>
@@ -1574,11 +1805,13 @@ function ProfileScreen({
   onLogout, 
   onOpenMessages,
   currentUser,
+  onUserUpdated,
   key 
 }: { 
   onLogout: () => void, 
   onOpenMessages?: () => void,
   currentUser: UserDTO | null,
+  onUserUpdated?: (user: UserDTO) => void,
   key?: string 
 }) {
   const [showPrivacySettings, setShowPrivacySettings] = useState(false);
@@ -1595,6 +1828,41 @@ function ProfileScreen({
     sound: true,
   });
   const [notificationDigest, setNotificationDigest] = useState<'live' | 'hourly' | 'daily'>('live');
+  const [privacyVisibility, setPrivacyVisibility] = useState<VisibilityScope>(currentUser?.defaultVisibility ?? 'all');
+  const [privacyPreciseEnabled, setPrivacyPreciseEnabled] = useState<boolean>(currentUser?.preciseLocationEnabled ?? true);
+  const [privacySaving, setPrivacySaving] = useState(false);
+
+  useEffect(() => {
+    setPrivacyVisibility(currentUser?.defaultVisibility ?? 'all');
+    setPrivacyPreciseEnabled(currentUser?.preciseLocationEnabled ?? true);
+  }, [currentUser?.defaultVisibility, currentUser?.preciseLocationEnabled]);
+
+  const handlePrivacyVisibilityChange = async (nextVisibility: VisibilityScope) => {
+    setPrivacyVisibility(nextVisibility);
+    setPrivacySaving(true);
+    try {
+      const response = await api.updateMyPrivacy({ defaultVisibility: nextVisibility });
+      if (response.user) {
+        onUserUpdated?.(response.user);
+      }
+    } finally {
+      setPrivacySaving(false);
+    }
+  };
+
+  const handleTogglePrecise = async () => {
+    const nextPrecise = !privacyPreciseEnabled;
+    setPrivacyPreciseEnabled(nextPrecise);
+    setPrivacySaving(true);
+    try {
+      const response = await api.recordLocationConsent({ isGranted: nextPrecise, policyVersion: 'v1' });
+      if (response.user) {
+        onUserUpdated?.(response.user);
+      }
+    } finally {
+      setPrivacySaving(false);
+    }
+  };
 
   const displayName = currentUser?.fullName && currentUser.fullName !== 'New User' ? currentUser.fullName : 'משתמש חדש';
   const displayGrade = currentUser?.grade && currentUser.grade !== 'unknown' ? currentUser.grade : 'לא הוגדר';
@@ -1696,10 +1964,15 @@ function ProfileScreen({
                         <h4 className="font-bold text-sm text-primary">מי יכול לראות אותי?</h4>
                         <p className="text-xs text-on-surface-variant">ברירת מחדל כשאתה בחוץ</p>
                       </div>
-                      <select className="bg-surface-container-highest text-sm font-bold text-primary rounded-lg px-3 py-2 border-none outline-none">
-                        <option>רק חברים</option>
-                        <option>כל השכבה</option>
-                        <option>כולם</option>
+                      <select
+                        value={privacyVisibility}
+                        disabled={privacySaving}
+                        onChange={(e) => handlePrivacyVisibilityChange(e.target.value as VisibilityScope)}
+                        className="bg-surface-container-highest text-sm font-bold text-primary rounded-lg px-3 py-2 border-none outline-none disabled:opacity-50"
+                      >
+                        <option value="friends">רק חברים</option>
+                        <option value="grade">כל השכבה</option>
+                        <option value="all">כולם</option>
                       </select>
                     </div>
                     <div className="flex items-center justify-between">
@@ -1707,10 +1980,21 @@ function ProfileScreen({
                         <h4 className="font-bold text-sm text-primary">הסתר מיקום מדויק</h4>
                         <p className="text-xs text-on-surface-variant">הצג רק אזור כללי</p>
                       </div>
-                      <div className="w-12 h-6 bg-primary rounded-full relative cursor-pointer">
-                        <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></div>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={handleTogglePrecise}
+                        disabled={privacySaving}
+                        className={`w-12 h-6 rounded-full relative cursor-pointer transition-colors ${privacyPreciseEnabled ? 'bg-primary' : 'bg-surface-container-high'} disabled:opacity-50`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${privacyPreciseEnabled ? 'right-1' : 'right-7'}`}></div>
+                      </button>
                     </div>
+                    {privacySaving && <p className="text-xs text-on-surface-variant">שומר הגדרות פרטיות...</p>}
+                    <p className="text-xs text-on-surface-variant">
+                      {privacyPreciseEnabled
+                        ? 'מיקום מדויק יוצג רק לחברים מאושרים.'
+                        : 'מיקום מדויק כבוי. תוצג רק תצוגת אזור.'}
+                    </p>
                   </div>
                 </motion.div>
               )}
@@ -2052,7 +2336,7 @@ export default function App() {
   const [outsideConfig, setOutsideConfig] = useState({
     endTime: null as number | null,
     location: 'על הדשא הגדול',
-    visibility: 'friends'
+    visibility: 'all'
   });
 
   const loadCurrentProfile = async (): Promise<UserDTO | null> => {
@@ -2179,7 +2463,6 @@ export default function App() {
         <AnimatePresence mode="wait">
           {currentTab === 'now' && (
             <NowScreen 
-              key="now" 
               isOutside={isOutside} 
               setIsOutside={setIsOutside} 
               outsideConfig={outsideConfig} 
@@ -2187,16 +2470,17 @@ export default function App() {
               onOpenMessages={() => setShowMessagesGlobal(true)}
               onOpenChat={handleOpenChat}
               currentUserId={currentUserId}
+              currentUser={currentUserProfile}
             />
           )}
-          {currentTab === 'outside' && <OutsideScreen key="outside" onOpenMessages={() => setShowMessagesGlobal(true)} onOpenChat={handleOpenChat} />}
-          {currentTab === 'events' && <EventsScreen key="events" onOpenMessages={() => setShowMessagesGlobal(true)} onOpenChat={handleOpenChat} />}
+          {currentTab === 'outside' && <OutsideScreen onOpenMessages={() => setShowMessagesGlobal(true)} onOpenChat={handleOpenChat} />}
+          {currentTab === 'events' && <EventsScreen onOpenMessages={() => setShowMessagesGlobal(true)} onOpenChat={handleOpenChat} />}
           {currentTab === 'profile' && (
             <ProfileScreen 
-              key="profile" 
               onLogout={handleLogout}
               onOpenMessages={() => setShowMessagesGlobal(true)}
               currentUser={currentUserProfile}
+              onUserUpdated={setCurrentUserProfile}
             />
           )}
         </AnimatePresence>

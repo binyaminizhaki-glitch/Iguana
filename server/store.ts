@@ -1,8 +1,10 @@
 import {
+  ConsentEvent,
   Conversation,
   EventItem,
   Friendship,
   FriendRequest,
+  LocationSample,
   Message,
   NotificationItem,
   User,
@@ -18,8 +20,8 @@ const users: User[] = [
     email: 'daniel@iasa.edu',
     full_name: 'דניאל',
     grade: 'י״ב',
-    precise_location_enabled: false,
-    default_visibility: 'friends',
+    precise_location_enabled: true,
+    default_visibility: 'all',
     created_at: now(),
     updated_at: now(),
   },
@@ -29,7 +31,7 @@ const users: User[] = [
     full_name: 'נועה',
     grade: 'י״ב',
     precise_location_enabled: true,
-    default_visibility: 'friends',
+    default_visibility: 'all',
     created_at: now(),
     updated_at: now(),
   },
@@ -48,8 +50,8 @@ const users: User[] = [
     email: 'newuser@iasa.edu',
     full_name: 'New User',
     grade: 'unknown',
-    precise_location_enabled: false,
-    default_visibility: 'friends',
+    precise_location_enabled: true,
+    default_visibility: 'all',
     created_at: now(),
     updated_at: now(),
   },
@@ -64,6 +66,8 @@ const friendRequests: FriendRequest[] = [
 ];
 
 const statuses: UserStatus[] = [];
+const locationSamples: LocationSample[] = [];
+const consentEvents: ConsentEvent[] = [];
 
 const events: EventItem[] = [
   {
@@ -138,6 +142,8 @@ export const db = {
   friendships,
   friendRequests,
   statuses,
+  locationSamples,
+  consentEvents,
   events,
   conversations,
   messages,

@@ -28,6 +28,20 @@ export interface UserStatusDTO {
   updatedAt: string;
 }
 
+export interface LocationSampleDTO {
+  id: string;
+  userId: string;
+  latitude?: number;
+  longitude?: number;
+  accuracyM?: number;
+  source: string;
+  locationMode: string;
+  zoneId?: string;
+  capturedAt: string;
+  createdAt: string;
+  expiresAt?: string;
+}
+
 export interface FriendshipDTO {
   id: string;
   userA: string;
@@ -112,6 +126,22 @@ export function mapUserStatus(status: Types.UserStatus): UserStatusDTO {
     startsAt: status.starts_at,
     expiresAt: status.expires_at,
     updatedAt: status.updated_at,
+  };
+}
+
+export function mapLocationSample(sample: Types.LocationSample): LocationSampleDTO {
+  return {
+    id: sample.id,
+    userId: sample.user_id,
+    latitude: sample.latitude,
+    longitude: sample.longitude,
+    accuracyM: sample.accuracy_m,
+    source: sample.source,
+    locationMode: sample.location_mode,
+    zoneId: sample.zone_id,
+    capturedAt: sample.captured_at,
+    createdAt: sample.created_at,
+    expiresAt: sample.expires_at,
   };
 }
 

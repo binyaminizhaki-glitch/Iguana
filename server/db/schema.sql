@@ -7,8 +7,8 @@ create table if not exists users (
   name text not null,
   grade text not null,
   avatar_url text,
-  precise_location_enabled boolean not null default false,
-  default_visibility text not null check (default_visibility in ('friends', 'grade', 'all')),
+  precise_location_enabled boolean not null default true,
+  default_visibility text not null default 'all' check (default_visibility in ('friends', 'grade', 'all')),
   created_at timestamptz not null default now()
 );
 

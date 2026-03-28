@@ -1,4 +1,6 @@
 export type VisibilityScope = 'friends' | 'grade' | 'all';
+export type LocationMode = 'zone' | 'precise' | 'manual';
+export type LocationSource = 'gps' | 'manual' | 'app';
 
 export interface UserDTO {
   id: string;
@@ -17,6 +19,11 @@ export interface UpdateMyProfileInput {
   grade: string;
   defaultVisibility: VisibilityScope;
   avatarUrl?: string;
+  preciseLocationEnabled?: boolean;
+}
+
+export interface UpdateMyPrivacyInput {
+  defaultVisibility?: VisibilityScope;
   preciseLocationEnabled?: boolean;
 }
 
@@ -77,6 +84,7 @@ export interface OutsideResult {
     id: string;
     name: string;
     grade: string;
+    isFriend: boolean;
   };
 }
 
@@ -103,6 +111,55 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface LocationSampleDTO {
+  id: string;
+  userId: string;
+  latitude?: number;
+  longitude?: number;
+  accuracyM?: number;
+  source: LocationSource;
+  locationMode: LocationMode;
+  zoneId?: string;
+  capturedAt: string;
+  createdAt: string;
+  expiresAt?: string;
+}
+
+export interface CreateLocationSampleInput {
+  latitude: number;
+  longitude: number;
+  accuracyM?: number;
+  source?: LocationSource;
+  locationMode?: LocationMode;
+  zoneId?: string;
+}
+
+export interface RecordLocationConsentInput {
+  isGranted: boolean;
+  policyVersion?: string;
+}
+
+export interface OutsideLocationResult {
+  status: {
+    id: string;
+    userId: string;
+    visibility: VisibilityScope;
+    locationLabel: string;
+    note: string;
+    zoneId?: string;
+    startsAt: string;
+    expiresAt?: string;
+    updatedAt: string;
+  };
+  user: {
+    id: string;
+    name: string;
+    grade: string;
+    isFriend: boolean;
+  };
+  sample: LocationSampleDTO | null;
+}
+
 export const api = {
   setAuthToken(token: string, userId: string) {
     authToken = token;
@@ -120,6 +177,18 @@ export const api = {
   updateMyProfile(input: UpdateMyProfileInput) {
     return apiFetch<{ user: UserDTO | null }>('/api/users/me/profile', {
       method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  },
+  updateMyPrivacy(input: UpdateMyPrivacyInput) {
+    return apiFetch<{ user: UserDTO | null }>('/api/users/me/privacy', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  },
+  recordLocationConsent(input: RecordLocationConsentInput) {
+    return apiFetch<{ user: UserDTO | null; consent: any }>('/api/users/me/consent/location', {
+      method: 'POST',
       body: JSON.stringify(input),
     });
   },
@@ -142,6 +211,18 @@ export const api = {
   },
   getOutside() {
     return apiFetch<{ results: OutsideResult[] }>('/api/status/outside');
+  },
+  createLocationSample(input: CreateLocationSampleInput) {
+    return apiFetch<{ sample: LocationSampleDTO }>('/api/location/samples', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  getMyLatestLocationSample() {
+    return apiFetch<{ sample: LocationSampleDTO | null }>('/api/location/me/latest');
+  },
+  getOutsideLocationFeed() {
+    return apiFetch<{ results: OutsideLocationResult[] }>('/api/location/outside');
   },
   getConversations() {
     return apiFetch<{ conversations: ChatConversationSummary[] }>('/api/chat/conversations');

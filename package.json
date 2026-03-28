@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "dev:api": "tsx watch server/index.ts",
-    "start:api": "tsx server/index.ts",
+    "start:api": "npm run build:api && node dist-server/index.js",
+    "build:api": "tsc -p tsconfig.server.json --outDir dist-server",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist dist-server",
     "lint": "tsc --noEmit",
     "lint:api": "tsc --noEmit -p tsconfig.server.json",
     "test:integration:persistence": "node server/integration/persistence.test.mjs"
