@@ -6,8 +6,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api, type LocationMode, type UserDTO, type VisibilityScope } from './api';
-import { supabase, getCurrentUser } from './supabase';
+import { SignIn, useAuth, useUser } from '@clerk/react';
 import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
+import { Mascot } from './components/common/Mascot';
 import {
   Bell,
   X,
@@ -56,6 +57,10 @@ const VISIBILITY_OPTIONS: Array<{ value: VisibilityScope; label: string; descrip
   { value: 'grade', label: 'כל השכבה', description: 'גם תלמידים מהשכבה שלך יראו שאתה בחוץ.' },
   { value: 'all', label: 'כולם', description: 'כל תלמידי בית הספר יוכלו לראות אותך.' },
 ];
+const clerkPublishableKey =
+  (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined) ??
+  (import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY as string | undefined);
+const isClerkConfigured = Boolean(clerkPublishableKey);
 
 type GeoPermissionState = 'idle' | 'requesting' | 'granted' | 'denied' | 'unsupported' | 'error';
 
@@ -165,7 +170,7 @@ function BottomNav({ currentTab, onChange }: { currentTab: string, onChange: (ta
 
 // --- Screens ---
 
-function LoginScreen({ onLogin }: { onLogin: () => void }) {
+function LoginScreen() {
   return (
     <div className="relative min-h-screen bg-surface text-on-surface antialiased overflow-hidden flex flex-col items-center justify-between px-5 sm:px-8 pt-10 pb-8 sm:py-16 text-center">
       <div className="fixed inset-0 z-0">
@@ -188,26 +193,36 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
         </div>
 
         <div className="w-full flex flex-col gap-4 mt-auto">
-          <button
-            onClick={onLogin}
-            aria-label="התחלת עבודה"
-            className="primary-cta w-full py-4 sm:py-5 rounded-full font-heebo font-bold text-lg sm:text-xl active:scale-95 transition-all duration-300 flex items-center justify-center gap-3"
-          >
-            <span>התחלת עבודה</span>
-            <ArrowLeft className="w-6 h-6" />
-          </button>
-          
-          <button
-            onClick={onLogin}
-            aria-label="כניסה עם אימייל בית הספר"
-            className="bg-surface-container-high hover:bg-surface-container-highest text-primary w-full py-4 sm:py-5 rounded-full font-heebo font-semibold text-base sm:text-lg transition-colors flex items-center justify-center gap-3"
-          >
-            <GraduationCap className="w-6 h-6" />
-            <span>כניסה עם אימייל בית הספר</span>
-          </button>
-          
-          <p className="mt-4 text-on-surface-variant/60 font-heebo text-sm">
-            בהתחברות, הינך מסכים לתנאי השימוש שלנו
+          {isClerkConfigured ? (
+            <div className="bg-surface-container-low/80 backdrop-blur-sm rounded-3xl p-3 sm:p-4 text-right shadow-sm border border-outline-variant/10">
+              <SignIn
+                routing="hash"
+                appearance={{
+                  elements: {
+                    card: 'shadow-none bg-transparent border-0',
+                    rootBox: 'w-full',
+                    headerTitle: 'hidden',
+                    headerSubtitle: 'hidden',
+                    socialButtonsBlockButton: 'rounded-2xl',
+                    formButtonPrimary: 'rounded-2xl bg-primary hover:bg-primary/90',
+                    footerActionLink: 'text-primary font-bold',
+                    formFieldInput:
+                      'rounded-2xl bg-surface border border-outline-variant/10 text-on-surface placeholder:text-on-surface-variant/60',
+                  },
+                }}
+              />
+            </div>
+          ) : (
+            <div className="bg-surface-container-low/80 backdrop-blur-sm rounded-3xl p-4 sm:p-5 text-right shadow-sm border border-outline-variant/10">
+              <p className="text-sm font-bold text-primary">Clerk עדיין לא מוגדר בפרויקט</p>
+              <p className="mt-2 text-sm text-on-surface-variant">
+                צריך להוסיף מפתח `VITE_CLERK_PUBLISHABLE_KEY` או `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` כדי להפעיל את מסך ההרשמה.
+              </p>
+            </div>
+          )}
+
+          <p className="mt-2 text-on-surface-variant/60 font-heebo text-sm">
+            ההרשמה והכניסה מנוהלות עכשיו רק דרך Clerk.
           </p>
         </div>
       </main>
@@ -897,16 +912,21 @@ function NowScreen({
       </div>
         </>
       ) : (
-        <div className="flex flex-col items-center justify-center text-center space-y-6 pt-8 pb-12">
+        <div className="flex flex-col items-center justify-center text-center space-y-6 pt-8 pb-12 relative mt-4">
           <motion.button 
             whileTap={{ scale: 0.95 }}
             onClick={() => setShowActivation(true)}
-            className="primary-cta soft-ambient w-48 h-48 rounded-full flex flex-col items-center justify-center transition-transform duration-300 group"
+            className="primary-cta soft-ambient w-48 h-48 rounded-full flex flex-col items-center justify-center transition-transform duration-300 group relative z-10"
           >
             <Zap className="w-12 h-12 mb-2 text-white" />
             <span className="text-lg font-bold tracking-wide">אני בחוץ עכשיו</span>
           </motion.button>
-          <p className="text-on-surface-variant font-medium max-w-[250px]">
+          
+          <div className="absolute -top-16 -right-6 z-0 pointer-events-none opacity-90">
+            <Mascot variant="moving" size="md" animationMode="float" className="scale-75" />
+          </div>
+
+          <p className="text-on-surface-variant font-medium max-w-[250px] relative z-10">
             לחץ כדי לעדכן את החברים שאתה זמין למפגש בקמפוס.
           </p>
         </div>
@@ -945,8 +965,11 @@ function NowScreen({
         </div>
         <div className="grid grid-cols-1 gap-4">
           {friendsOutside.length === 0 && (
-            <div className="bg-surface-container-lowest p-4 rounded-2xl text-sm text-on-surface-variant">
-              אין כרגע חברים פעילים בחוץ.
+            <div className="bg-surface-container-lowest p-8 rounded-2xl flex flex-col items-center justify-center text-center gap-4">
+              <Mascot variant="sleeping" size="md" animationMode="breathe" className="opacity-80" />
+              <p className="text-sm font-medium text-on-surface-variant max-w-[200px] leading-relaxed">
+                הקמפוס די שקט עכשיו...<br/>זה זמן טוב לצאת החוצה
+              </p>
             </div>
           )}
           {friendsOutside.slice(0, showAllFriends ? friendsOutside.length : 3).map((item) => (
@@ -1019,7 +1042,7 @@ const CAMPUS_ZONES = [
   { id: 'labs', name: 'מעבדות', className: 'bottom-[5%] left-[5%] w-[45%] h-[25%] rounded-3xl map-zone-quiet' },
 ];
 
-function OutsideScreen({ onOpenMessages, onOpenChat }: { onOpenMessages?: () => void, onOpenChat?: (user: any) => void }) {
+function OutsideScreen({ onOpenMessages, onOpenChat, onNavigateHome }: { onOpenMessages?: () => void, onOpenChat?: (user: any) => void, onNavigateHome?: () => void }) {
   const [audience, setAudience] = useState<'friends' | 'all'>('friends');
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1231,8 +1254,15 @@ function OutsideScreen({ onOpenMessages, onOpenChat }: { onOpenMessages?: () => 
             className="flex flex-col gap-5"
           >
             {visibleUsers.length === 0 ? (
-              <div className="text-center py-12 text-on-surface-variant">
-                <p>לא נמצאו אנשים בחוץ כרגע.</p>
+              <div className="text-center py-16 flex flex-col items-center justify-center gap-4 text-on-surface-variant">
+                <Mascot variant="sleeping" size="md" animationMode="float" className="opacity-90" />
+                <p className="font-medium">אין אף אחד בחוץ כרגע...</p>
+                <button 
+                  onClick={() => onNavigateHome?.()}
+                  className="mt-2 text-sm text-primary font-bold hover:underline"
+                >
+                  למסך הראשי
+                </button>
               </div>
             ) : (
               visibleUsers.map((user) => (
@@ -1413,10 +1443,16 @@ function EventsScreen({ onOpenMessages, onOpenChat, key }: { onOpenMessages?: ()
         <AnimatePresence mode="popLayout">
           {visibleItems.length === 0 ? (
             <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="text-center py-12 text-on-surface-variant"
+              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="text-center py-16 flex flex-col items-center gap-4 text-on-surface-variant bg-surface-container-lowest rounded-3xl"
             >
-              <p>לא נמצאו תוצאות.</p>
+              <Mascot variant="learning" size="md" animationMode="float" className="mb-2" />
+              <div className="space-y-1">
+                <p className="font-bold text-base">אין כאן כלום כרגע</p>
+                <p className="text-sm opacity-80 max-w-[200px] leading-relaxed mx-auto">
+                  {activeTab === 'study' ? 'אולי זה הזמן לפתוח קבוצת למידה בעצמך?' : 'לא מצאנו אירועים. צור אחד חדש!'}
+                </p>
+              </div>
             </motion.div>
           ) : (
             visibleItems.map((item) => (
@@ -1755,7 +1791,11 @@ function MessageOverlay({
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-container-lowest/50">
                   {isLoadingMessages && <p className="text-sm text-on-surface-variant">טוען הודעות...</p>}
                   {!isLoadingMessages && chatMessages.length === 0 && (
-                    <p className="text-sm text-on-surface-variant">אין הודעות בשיחה הזאת עדיין.</p>
+                    <div className="flex flex-col items-center justify-center pt-8 text-on-surface-variant opacity-80">
+                      <Mascot variant="social" size="sm" animationMode="none" className="mb-3" />
+                      <p className="text-sm">אין הודעות בשיחה הזאת עדיין.</p>
+                      <p className="text-xs mt-1">שלח הודעה כדי להתחיל!</p>
+                    </div>
                   )}
                   <div className="flex flex-col gap-2">
                     {chatMessages.map((message) => {
@@ -1959,6 +1999,9 @@ function ProfileScreen({
                   exit={{ opacity: 0, height: 0 }}
                   className="overflow-hidden px-4"
                 >
+                  <div className="flex flex-col items-center justify-center pt-2 pb-2 opacity-90">
+                     <Mascot variant="protective" size="sm" animationMode="none" />
+                  </div>
                   <div className="py-4 space-y-4 border-t border-outline-variant/10 mt-2">
                     <div className="flex items-center justify-between">
                       <div>
@@ -2053,7 +2096,10 @@ function ProfileScreen({
               className="fixed inset-0 z-[100] bg-surface flex flex-col"
             >
               <div className="flex items-center justify-between p-6 border-b border-outline-variant/10">
-                <h2 className="text-2xl font-bold text-primary">הוסף חבר</h2>
+                <div className="flex items-center gap-3">
+                  <Mascot variant="social" size="sm" animationMode="none" className="scale-75 -ml-2" />
+                  <h2 className="text-2xl font-bold text-primary">הוסף חבר</h2>
+                </div>
                 <button 
                   onClick={() => setShowAddFriend(false)}
                   className="w-10 h-10 bg-surface-container rounded-full flex items-center justify-center text-on-surface-variant"
@@ -2093,7 +2139,10 @@ function ProfileScreen({
               className="fixed inset-0 z-[100] bg-surface flex flex-col"
             >
               <div className="flex items-center justify-between p-6 border-b border-outline-variant/10">
-                <h2 className="text-2xl font-bold text-primary">בקשות חברות</h2>
+                <div className="flex items-center gap-3">
+                  <Mascot variant="social" size="sm" animationMode="none" className="scale-75 -ml-2" />
+                  <h2 className="text-2xl font-bold text-primary">בקשות חברות</h2>
+                </div>
                 <button 
                   onClick={() => setShowFriendRequests(false)}
                   className="w-10 h-10 bg-surface-container rounded-full flex items-center justify-center text-on-surface-variant"
@@ -2325,7 +2374,9 @@ function ProfileScreen({
 
 // --- Main App ---
 
-export default function App() {
+function AppWithClerk() {
+  const { isLoaded: isAuthLoaded, isSignedIn, getToken, signOut } = useAuth();
+  const { user: clerkUser } = useUser();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<UserDTO | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -2346,12 +2397,23 @@ export default function App() {
     return meResponse.user;
   };
 
+  const startLocalDevSession = async () => {
+    const devUserId = localStorage.getItem('iasa_dev_user_id') || 'u1';
+    localStorage.setItem('iasa_dev_user_id', devUserId);
+    setCurrentUserId(devUserId);
+    api.clearAuthToken();
+    const profile = await loadCurrentProfile();
+    setCurrentTab(isProfileComplete(profile) ? 'now' : 'profile-setup');
+  };
+
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    if (isClerkConfigured) {
+      await signOut();
+    }
     api.clearAuthToken();
     setCurrentUserId(null);
     setCurrentUserProfile(null);
-    setCurrentTab('login');
+    setCurrentTab(isClerkConfigured ? 'login' : 'welcome-flow');
     setShowMessagesGlobal(false);
     setActiveChatGlobal(null);
   };
@@ -2364,45 +2426,59 @@ export default function App() {
     setCurrentTab(tab);
   };
 
-  const handleDevLogin = async () => {
-    localStorage.setItem('iasa_dev_user_id', 'u4');
-    setCurrentUserId('u4');
-    api.setAuthToken('', 'u4');
-
-    try {
-      const profile = await loadCurrentProfile();
-      setCurrentTab(isProfileComplete(profile) ? 'now' : 'profile-setup');
-    } catch (_error) {
-      setCurrentUserProfile(null);
-      setCurrentTab('profile-setup');
-    }
-  };
-
-  // Initialize auth on app load
   useEffect(() => {
+    let isCancelled = false;
+
     const initAuth = async () => {
       try {
-        const token = localStorage.getItem('iasa_auth_token');
-        if (token) {
-          api.setAuthToken(token, 'temp-id');
-          const { user: user_data, error } = await getCurrentUser();
-          if (!error && user_data?.id) {
-            setCurrentUserId(user_data.id);
-            api.setAuthToken(token, user_data.id);
-            const profile = await loadCurrentProfile();
-            setCurrentTab(isProfileComplete(profile) ? 'now' : 'profile-setup');
-            return;
-          }
+        if (!isClerkConfigured) {
+          await startLocalDevSession();
+          return;
         }
 
+        if (!isAuthLoaded) {
+          return;
+        }
+
+        if (isSignedIn && clerkUser?.id) {
+          api.setAuthTokenProvider(async () => (await getToken()) ?? null);
+          const token = await getToken();
+          if (!token) {
+            throw new Error('Clerk session token is missing.');
+          }
+
+          api.setAuthToken(token, clerkUser.id);
+          if (isCancelled) {
+            return;
+          }
+
+          setCurrentUserId(clerkUser.id);
+          const profile = await loadCurrentProfile();
+          if (isCancelled) {
+            return;
+          }
+
+          setCurrentTab(isProfileComplete(profile) ? 'now' : 'profile-setup');
+          return;
+        }
+
+        api.clearAuthToken();
+        setCurrentUserId(null);
+        setCurrentUserProfile(null);
         const hasOnboarded = localStorage.getItem('iguana_onboarding_completed') === 'true';
         setCurrentTab(hasOnboarded ? 'login' : 'welcome-flow');
       } finally {
-        setIsInitializing(false);
+        if (!isCancelled && (!isClerkConfigured || isAuthLoaded)) {
+          setIsInitializing(false);
+        }
       }
     };
+
     initAuth();
-  }, []);
+    return () => {
+      isCancelled = true;
+    };
+  }, [isAuthLoaded, isSignedIn, clerkUser?.id, getToken]);
 
   useEffect(() => {
     if (!isInitializing && currentUserId && currentUserProfile && !isProfileComplete(currentUserProfile) && currentTab !== 'profile-setup') {
@@ -2438,11 +2514,11 @@ export default function App() {
   }
 
   if (currentTab === 'login') {
-    return <LoginScreen onLogin={handleDevLogin} />;
+    return <LoginScreen />;
   }
 
   if (!currentUserId) {
-    return <LoginScreen onLogin={handleDevLogin} />;
+    return <LoginScreen />;
   }
 
   if (currentTab === 'profile-setup') {
@@ -2479,7 +2555,7 @@ export default function App() {
               currentUser={currentUserProfile}
             />
           )}
-          {currentTab === 'outside' && <OutsideScreen onOpenMessages={() => setShowMessagesGlobal(true)} onOpenChat={handleOpenChat} />}
+          {currentTab === 'outside' && <OutsideScreen onOpenMessages={() => setShowMessagesGlobal(true)} onOpenChat={handleOpenChat} onNavigateHome={() => setCurrentTab('now')} />}
           {currentTab === 'events' && <EventsScreen onOpenMessages={() => setShowMessagesGlobal(true)} onOpenChat={handleOpenChat} />}
           {currentTab === 'profile' && (
             <ProfileScreen 
@@ -2542,4 +2618,28 @@ export default function App() {
       </AnimatePresence>
     </div>
   );
+}
+
+export default function App() {
+  if (!isClerkConfigured) {
+    return (
+      <div className="min-h-screen app-bg flex items-center justify-center px-6">
+        <div className="section-card max-w-lg w-full p-6 text-right">
+          <h1 className="text-2xl font-extrabold text-primary">Clerk עדיין לא מחובר לפרויקט</h1>
+          <p className="mt-3 text-on-surface-variant leading-relaxed">
+            הקוד עבר להסמכה דרך Clerk בלבד, אבל כדי להשלים את ההפעלה צריך להוסיף בקובץ הסביבה את
+            <span className="mx-1 font-mono text-primary">VITE_CLERK_PUBLISHABLE_KEY</span>,
+            <span className="mx-1 font-mono text-primary">NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</span>,
+            <span className="mx-1 font-mono text-primary">CLERK_SECRET_KEY</span>
+            ולהגדיר גם את מפתחות Supabase.
+          </p>
+          <p className="mt-3 text-sm text-on-surface-variant">
+            אחרי שהמפתחות יוזנו ו-Supabase integration ב-Clerk יהיה פעיל, מסך ההרשמה יעבוד אוטומטית.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return <AppWithClerk />;
 }

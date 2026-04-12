@@ -8,6 +8,15 @@ coverage/
 .env*
 !.env.example
 .vscode/
+.idea/
+.codex/
+artifacts/
+playwright-report/
+test-results/
+visual.spec.ts-snapshots/
+supabase/.temp/
+server.out.log
+server.err.log
 check-*.png
 activation-sheet.png
 events.png

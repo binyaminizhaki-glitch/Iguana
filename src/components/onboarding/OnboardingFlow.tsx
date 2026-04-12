@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Users, Zap, Shield, MapPin, Bell, UserCheck } from 'lucide-react';
-import { IguanaMascot } from './IguanaMascot';
+import { Mascot } from '../common/Mascot';
 
 const SWIPE_CONFIDENCE_THRESHOLD = 10000;
 const swipePower = (offset: number, velocity: number) => {
@@ -65,7 +65,7 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
       id: 0,
       title: "איגואנה יודעת\nמה קורה עכשיו",
       subtitle: "האפליקציה שעוזרת לך לראות מי בחוץ, מה קורה בקמפוס, ואיך להצטרף בלי סיבוך.",
-      Visual: () => <IguanaMascot className="mt-8 mb-4 scale-110" />,
+      Visual: () => <Mascot variant="core" className="mt-8 mb-4 scale-110" size="xl" animationMode="breathe" />,
       primaryBtn: "מתחילים",
       secondaryBtn: "דלג",
       secondaryAction: handleSkip
@@ -75,33 +75,8 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
       title: "רואים מי בחוץ,\nבזמן אמת",
       subtitle: "חברים, שכבה, קבוצות לימוד, ומפגשים שקורים עכשיו.",
       Visual: () => (
-        <div className="relative w-full max-w-xs mx-auto aspect-square flex items-center justify-center">
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="absolute top-[10%] w-[80%] bg-surface rounded-2xl shadow-xl p-4 flex items-center gap-4 rotate-[-4deg]"
-          >
-            <div className="w-12 h-12 bg-secondary/20 rounded-full flex items-center justify-center">
-               <Users className="w-6 h-6 text-secondary" />
-            </div>
-            <div className="flex-1 space-y-2">
-              <div className="h-4 w-24 bg-surface-container rounded"></div>
-              <div className="h-3 w-16 bg-surface-container-high rounded"></div>
-            </div>
-          </motion.div>
-          <motion.div 
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0, transition: { delay: 0.1 } }}
-            className="absolute top-[42%] left-[5%] w-[85%] bg-surface rounded-2xl shadow-2xl z-10 p-4 border border-surface-container-high flex items-center gap-4 rotate-[2deg]"
-          >
-             <div className="w-12 h-12 bg-primary/20 rounded-full flex items-center justify-center">
-               <Zap className="w-6 h-6 text-primary" />
-            </div>
-            <div className="flex-1 space-y-2">
-              <div className="h-4 w-32 bg-surface-container rounded"></div>
-              <div className="h-3 w-20 bg-surface-container-high rounded"></div>
-            </div>
-          </motion.div>
+        <div className="relative w-full max-w-xs mx-auto flex items-center justify-center h-48">
+          <Mascot variant="social" size="xl" animationMode="float" />
         </div>
       ),
       primaryBtn: "הבא",
@@ -113,21 +88,8 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
       title: "בלחיצה אחת,\nגם אתה בחוץ",
       subtitle: "עדכון קצר, זמן, אזור, וזהו. האנשים הנכונים יראו אותך.",
       Visual: () => (
-        <div className="relative w-full max-w-[260px] mx-auto aspect-square flex items-center justify-center">
-           <motion.div 
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ type: "spring", bounce: 0.5 }}
-              className="w-32 h-32 rounded-[40px] bg-primary-container shadow-2xl flex flex-col items-center justify-center gap-3 border-[6px] border-surface"
-            >
-              <motion.div 
-                animate={{ y: [-4, 4, -4] }}
-                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-              >
-                <UserCheck className="w-10 h-10 text-on-primary-container" />
-              </motion.div>
-              <div className="font-bold text-on-primary-container">אני בחוץ</div>
-           </motion.div>
+        <div className="relative w-full max-w-xs mx-auto flex items-center justify-center h-48">
+          <Mascot variant="moving" size="xl" animationMode="fade-rise" />
         </div>
       ),
       primaryBtn: "הבא",
@@ -139,15 +101,14 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
       title: "אתה בוחר\nמה רואים עליך",
       subtitle: "רק חברים, רק שכבה, רק אזור כללי. תמיד בשליטה.",
       Visual: () => (
-        <div className="relative w-full max-w-xs mx-auto flex flex-col gap-3 py-2 px-4">
-           <motion.div initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="bg-surface p-4 rounded-xl shadow-sm border border-surface-container-high flex items-center gap-4">
-             <Shield className="w-6 h-6 text-primary" />
-             <span className="font-bold">רק חברים קרובים</span>
-           </motion.div>
-           <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.1 }} className="bg-surface p-4 rounded-xl shadow-sm border border-surface-container-high flex items-center gap-4">
-             <Users className="w-6 h-6 text-secondary" />
-             <span className="font-bold">כולם בשכבה</span>
-           </motion.div>
+        <div className="relative w-full max-w-xs mx-auto flex flex-col items-center justify-center gap-4 py-2 px-4 h-56">
+           <Mascot variant="protective" size="lg" animationMode="breathe" />
+           <div className="w-full max-w-[240px] space-y-2 mt-2">
+             <motion.div initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="bg-surface p-3 rounded-xl shadow-sm border border-surface-container-high flex items-center justify-center gap-3">
+               <Shield className="w-5 h-5 text-primary" />
+               <span className="font-bold text-sm">רק חברים קרובים</span>
+             </motion.div>
+           </div>
         </div>
       ),
       primaryBtn: "המשך להרשאות",
@@ -159,15 +120,16 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
       title: "כדי שאיגואנה תעבוד טוב,\nצריך לאשר שני דברים",
       subtitle: "מיקום והתראות, כדי שתראה מה קורה מסביבך ותוכל להצטרף בזמן.",
       Visual: () => (
-         <div className="relative w-full max-w-[320px] mx-auto flex flex-col gap-4 py-2 px-4">
-           <div className="bg-surface-container-low p-5 rounded-2xl flex items-start gap-4 text-start shadow-sm border border-surface-container-high transition-transform hover:scale-[1.02]">
+         <div className="relative w-full max-w-[320px] mx-auto flex flex-col gap-4 py-2 px-4 items-center">
+           <Mascot variant="front" size="sm" animationMode="none" className="mb-2" />
+           <div className="bg-surface-container-low p-5 rounded-2xl w-full flex items-start gap-4 text-start shadow-sm border border-surface-container-high transition-transform hover:scale-[1.02]">
              <div className="mt-1 bg-primary/10 p-2.5 rounded-full"><MapPin className="w-5 h-5 text-primary" /></div>
              <div>
                <h3 className="font-bold text-lg text-primary">מיקום</h3>
                <p className="text-sm opacity-85 leading-relaxed mt-1">לדעת אילו אירועים קרובים אליך ולצרף אותך לאזורי ישיבה.</p>
              </div>
            </div>
-           <div className="bg-surface-container-low p-5 rounded-2xl flex items-start gap-4 text-start shadow-sm border border-surface-container-high transition-transform hover:scale-[1.02]">
+           <div className="bg-surface-container-low p-5 rounded-2xl w-full flex items-start gap-4 text-start shadow-sm border border-surface-container-high transition-transform hover:scale-[1.02]">
              <div className="mt-1 bg-secondary/10 p-2.5 rounded-full"><Bell className="w-5 h-5 text-secondary" /></div>
              <div>
                <h3 className="font-bold text-lg text-secondary">התראות</h3>

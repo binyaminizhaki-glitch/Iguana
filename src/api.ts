@@ -29,20 +29,21 @@ export interface UpdateMyPrivacyInput {
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:4000';
 
-// Store auth token in local storage
-let authToken: string | null = localStorage.getItem('iasa_auth_token');
+type AuthTokenProvider = (() => Promise<string | null> | string | null) | null;
+
+let authToken: string | null = null;
+let authTokenProvider: AuthTokenProvider = null;
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const resolvedToken = authTokenProvider ? await authTokenProvider() : authToken;
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...(init?.headers ?? {}),
   };
 
-  // Add auth token if available, else fall back to dev header
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
+  if (resolvedToken) {
+    headers['Authorization'] = `Bearer ${resolvedToken}`;
   } else {
-    // Dev mode: use x-user-id header as fallback
     const userId = localStorage.getItem('iasa_dev_user_id') || 'u1';
     headers['x-user-id'] = userId;
   }
@@ -161,14 +162,16 @@ export interface OutsideLocationResult {
 }
 
 export const api = {
+  setAuthTokenProvider(provider: AuthTokenProvider) {
+    authTokenProvider = provider;
+  },
   setAuthToken(token: string, userId: string) {
     authToken = token;
-    localStorage.setItem('iasa_auth_token', token);
     localStorage.setItem('iasa_dev_user_id', userId);
   },
   clearAuthToken() {
     authToken = null;
-    localStorage.removeItem('iasa_auth_token');
+    authTokenProvider = null;
     localStorage.removeItem('iasa_dev_user_id');
   },
   getMe() {

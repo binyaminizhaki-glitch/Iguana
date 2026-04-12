@@ -1,4 +1,5 @@
-<div align="center">
+npm install -D @playwright/test
+npx playwright install<div align="center">
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
@@ -44,27 +45,40 @@ Main API groups currently available:
 
 Database bootstrap SQL for local PostgreSQL is in `server/db/schema.sql`.
 
-## Supabase (New Project) Setup
+## Clerk + Supabase Setup
 
 The full production schema + RLS policies now live in:
 - `supabase/migrations/202603260001_initial.sql`
 - `supabase/migrations/202603260002_rls.sql`
+- `supabase/migrations/202603280001_location_foundation.sql`
+- `supabase/migrations/202604070001_clerk_auth_text_ids.sql`
+
+Authentication is handled by Clerk only. Supabase remains the database + RLS layer.
+
+Required Clerk env vars:
+- `VITE_CLERK_PUBLISHABLE_KEY`
+- `CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+- `CLERK_JWT_KEY`
+- `CLERK_AUTHORIZED_PARTIES` (recommended, especially in production)
 
 To run backend in Supabase mode, set these server env vars:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_ANON_KEY`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 
 If they are missing, backend falls back to memory mode for development.
 
 ## Production Auth and RLS
 
-- In production (`NODE_ENV=production`), backend requires `Authorization: Bearer <jwt>`.
+- In production (`NODE_ENV=production`), backend requires `Authorization: Bearer <jwt>` from Clerk.
 - `x-user-id` dev fallback is disabled in production.
 - In development, fallback auth can be enabled explicitly with:
    - `ALLOW_DEV_AUTH_FALLBACK=true`
 
-Every repository query runs with a user-scoped Supabase client when a bearer token is present, so RLS is enforced by Supabase on each query.
+Every repository query runs with a user-scoped Supabase client when a Clerk bearer token is present, so RLS is enforced by Supabase on each query.
 
 ## Health and Readiness
 
@@ -80,3 +94,17 @@ Run an end-to-end restart persistence check against Supabase:
 Required env var:
 
 - `TEST_SUPABASE_JWT` - access token for a real authenticated user.
+
+## AI Workflow Standards
+
+Repository-level workflow and coding behavior for agents is defined in:
+
+- [.github/copilot-instructions.md](.github/copilot-instructions.md)
+- [.github/instructions/ui-ux-pro-max.instructions.md](.github/instructions/ui-ux-pro-max.instructions.md)
+- [.github/instructions/gsd-execution.instructions.md](.github/instructions/gsd-execution.instructions.md)
+- [.github/instructions/terminal-first.instructions.md](.github/instructions/terminal-first.instructions.md)
+- [.github/instructions/memory-loop.instructions.md](.github/instructions/memory-loop.instructions.md)
+- [AGENTS.md](AGENTS.md)
+- [MEMORY.md](MEMORY.md)
+
+These files combine UI quality standards, pragmatic delivery, terminal-first verification, and memory continuity.
