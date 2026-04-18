@@ -32,3 +32,10 @@ Use this file to preserve concise, reusable project memory across tasks.
 - Reason: Ship the current updated app state without polluting the repository with machine-local files and transient test output.
 - Validation: `npm run lint`; `npm run lint:api`; `npm run build`; `npm run build:api`; `node tests.js`.
 - Notes: `npm run test:integration:persistence` is still gated on `TEST_SUPABASE_JWT` and failed in this session only because that token was not set.
+
+## 2026-04-13 - Removed floating iguana overlay above CTA
+
+- Changes: Removed the absolute-positioned `Mascot` overlay that floated above the main "אני בחוץ עכשיו" button in `src/App.tsx`.
+- Reason: The user wanted the iguana above the button gone, with minimal scope and no broader project scan.
+- Validation: Ran `get_errors` on `src/App.tsx`; the reported TypeScript/JSX issues are pre-existing project-wide typing noise, not caused by this UI change.
+- Notes: Kept the main button face and the rest of the onboarding/outside layout unchanged.

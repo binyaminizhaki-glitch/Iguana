@@ -34,18 +34,28 @@ type AuthTokenProvider = (() => Promise<string | null> | string | null) | null;
 let authToken: string | null = null;
 let authTokenProvider: AuthTokenProvider = null;
 
+function resolveDevFallbackUserId(): string {
+  const storedUserId = localStorage.getItem('iasa_dev_user_id');
+  // Legacy in-memory users use ids like u1/u2; stale Clerk ids should not be sent as fallback.
+  if (storedUserId && /^u\d+$/.test(storedUserId)) {
+    return storedUserId;
+  }
+  return 'u1';
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const resolvedToken = authTokenProvider ? await authTokenProvider() : authToken;
+  const providedToken = authTokenProvider ? await authTokenProvider() : null;
+  const resolvedToken = providedToken ?? authToken;
+  const userId = resolveDevFallbackUserId();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...(init?.headers ?? {}),
+    // Keep dev fallback identity available even when bearer auth is attempted.
+    'x-user-id': userId,
   };
 
   if (resolvedToken) {
     headers['Authorization'] = `Bearer ${resolvedToken}`;
-  } else {
-    const userId = localStorage.getItem('iasa_dev_user_id') || 'u1';
-    headers['x-user-id'] = userId;
   }
 
   const res = await fetch(`${API_BASE}${path}`, {

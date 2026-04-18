@@ -3,12 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api, type LocationMode, type UserDTO, type VisibilityScope } from './api';
 import { SignIn, useAuth, useUser } from '@clerk/react';
 import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
 import { Mascot } from './components/common/Mascot';
+import { SleepingMainButtonFace } from './components/common/SleepingMainButtonFace';
+import { AnimatedOutsideButtonFace } from './components/outside/AnimatedOutsideButtonFace';
 import {
   Bell,
   X,
@@ -866,7 +868,7 @@ function NowScreen({
           whileTap={{ scale: 0.95 }}
           className="primary-cta relative z-10 w-44 h-44 rounded-full flex flex-col items-center justify-center border-4 border-surface"
         >
-          <Zap className="w-12 h-12 mb-1 fill-current" />
+          <AnimatedOutsideButtonFace active className="w-28 h-20 mb-1.5 pointer-events-none" />
           <span className="text-xl font-bold tracking-wide">אני בחוץ</span>
         </motion.button>
 
@@ -918,14 +920,10 @@ function NowScreen({
             onClick={() => setShowActivation(true)}
             className="primary-cta soft-ambient w-48 h-48 rounded-full flex flex-col items-center justify-center transition-transform duration-300 group relative z-10"
           >
-            <Zap className="w-12 h-12 mb-2 text-white" />
-            <span className="text-lg font-bold tracking-wide">אני בחוץ עכשיו</span>
+            <SleepingMainButtonFace className="w-32 h-24 mb-2 pointer-events-none" />
+            <span className="text-lg font-bold tracking-wide">אני יוצא</span>
           </motion.button>
           
-          <div className="absolute -top-16 -right-6 z-0 pointer-events-none opacity-90">
-            <Mascot variant="moving" size="md" animationMode="float" className="scale-75" />
-          </div>
-
           <p className="text-on-surface-variant font-medium max-w-[250px] relative z-10">
             לחץ כדי לעדכן את החברים שאתה זמין למפגש בקמפוס.
           </p>
@@ -2377,10 +2375,12 @@ function ProfileScreen({
 function AppWithClerk() {
   const { isLoaded: isAuthLoaded, isSignedIn, getToken, signOut } = useAuth();
   const { user: clerkUser } = useUser();
+  const getTokenRef = useRef(getToken);
+  const authInitInFlightRef = useRef(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<UserDTO | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [currentTab, setCurrentTab] = useState('welcome-flow');
+  const [currentTab, setCurrentTab] = useState(isClerkConfigured ? 'login' : 'welcome-flow');
   const [isOutside, setIsOutside] = useState(false);
   const [showMessagesGlobal, setShowMessagesGlobal] = useState(false);
   const [activeChatGlobal, setActiveChatGlobal] = useState<any>(null);
@@ -2401,7 +2401,7 @@ function AppWithClerk() {
     const devUserId = localStorage.getItem('iasa_dev_user_id') || 'u1';
     localStorage.setItem('iasa_dev_user_id', devUserId);
     setCurrentUserId(devUserId);
-    api.clearAuthToken();
+    api.setAuthTokenProvider(null);
     const profile = await loadCurrentProfile();
     setCurrentTab(isProfileComplete(profile) ? 'now' : 'profile-setup');
   };
@@ -2427,7 +2427,36 @@ function AppWithClerk() {
   };
 
   useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
+  useEffect(() => {
     let isCancelled = false;
+
+    if (authInitInFlightRef.current) {
+      return () => {
+        isCancelled = true;
+      };
+    }
+    authInitInFlightRef.current = true;
+
+    const getClerkTokenWithRetry = async (
+      attempts = 5,
+      delayMs = 250,
+    ): Promise<string | null> => {
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const token = await getTokenRef.current();
+        if (token) {
+          return token;
+        }
+
+        if (attempt < attempts - 1) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+
+      return null;
+    };
 
     const initAuth = async () => {
       try {
@@ -2441,12 +2470,19 @@ function AppWithClerk() {
         }
 
         if (isSignedIn && clerkUser?.id) {
-          api.setAuthTokenProvider(async () => (await getToken()) ?? null);
-          const token = await getToken();
+          const token = await getClerkTokenWithRetry();
           if (!token) {
-            throw new Error('Clerk session token is missing.');
+            if (!isCancelled) {
+              api.setAuthTokenProvider(null);
+              setCurrentUserId(null);
+              setCurrentUserProfile(null);
+              setCurrentTab('login');
+            }
+            return;
           }
 
+          // During bootstrap we rely on the resolved token directly to avoid provider races.
+          api.setAuthTokenProvider(null);
           api.setAuthToken(token, clerkUser.id);
           if (isCancelled) {
             return;
@@ -2458,17 +2494,27 @@ function AppWithClerk() {
             return;
           }
 
+          api.setAuthTokenProvider(async () => (await getTokenRef.current()) ?? null);
           setCurrentTab(isProfileComplete(profile) ? 'now' : 'profile-setup');
           return;
         }
 
-        api.clearAuthToken();
+        api.setAuthTokenProvider(null);
         setCurrentUserId(null);
         setCurrentUserProfile(null);
         const hasOnboarded = localStorage.getItem('iguana_onboarding_completed') === 'true';
         setCurrentTab(hasOnboarded ? 'login' : 'welcome-flow');
+      } catch (error) {
+        console.error('Auth initialization failed:', error);
+        if (!isCancelled) {
+          api.setAuthTokenProvider(null);
+          setCurrentUserId(null);
+          setCurrentUserProfile(null);
+          setCurrentTab('login');
+        }
       } finally {
-        if (!isCancelled && (!isClerkConfigured || isAuthLoaded)) {
+        authInitInFlightRef.current = false;
+        if (!isCancelled) {
           setIsInitializing(false);
         }
       }
@@ -2478,7 +2524,7 @@ function AppWithClerk() {
     return () => {
       isCancelled = true;
     };
-  }, [isAuthLoaded, isSignedIn, clerkUser?.id, getToken]);
+  }, [isAuthLoaded, isSignedIn, clerkUser?.id]);
 
   useEffect(() => {
     if (!isInitializing && currentUserId && currentUserProfile && !isProfileComplete(currentUserProfile) && currentTab !== 'profile-setup') {
